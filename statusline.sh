@@ -89,29 +89,65 @@ if [ "$mod_usage" = true ]; then
     cache_file="$cache_dir/usage.json"
     cache_ttl=60  # seconds
 
+    # Read credentials from macOS Keychain (Claude Code 2.x+)
+    # Claude Code stores OAuth tokens in Keychain with profile-specific service names:
+    #   ~/.claude           -> "Claude Code-credentials"
+    #   custom config dir   -> "Claude Code-credentials-<sha256_prefix>"
+    read_keychain_creds() {
+        [ "$(uname)" != "Darwin" ] && return 1
+
+        local keychain_service="Claude Code-credentials"
+        local normalized_dir
+        normalized_dir=$(cd "$config_dir" 2>/dev/null && pwd -P || echo "$config_dir")
+        local default_dir
+        default_dir=$(cd "$HOME/.claude" 2>/dev/null && pwd -P || echo "$HOME/.claude")
+
+        if [ "$normalized_dir" != "$default_dir" ]; then
+            local hash
+            hash=$(printf '%s' "$config_dir" | shasum -a 256 | cut -c1-8)
+            keychain_service="Claude Code-credentials-${hash}"
+        fi
+
+        local keychain_data
+        keychain_data=$(/usr/bin/security find-generic-password -s "$keychain_service" -w 2>/dev/null)
+        if [ -z "$keychain_data" ]; then
+            # Fallback to legacy service name
+            keychain_data=$(/usr/bin/security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
+        fi
+        [ -z "$keychain_data" ] && return 1
+
+        echo "$keychain_data"
+    }
+
     fetch_usage() {
-        local creds_file="$config_dir/.credentials.json"
-        [ ! -f "$creds_file" ] && return 1
+        local access_token=""
+        local sub_type=""
 
-        local access_token
-        access_token=$(jq -r '.claudeAiOauth.accessToken // empty' "$creds_file" 2>/dev/null)
+        # Try macOS Keychain first (Claude Code 2.x+)
+        local keychain_json
+        keychain_json=$(read_keychain_creds)
+        if [ -n "$keychain_json" ]; then
+            access_token=$(echo "$keychain_json" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+            sub_type=$(echo "$keychain_json" | jq -r '.claudeAiOauth.subscriptionType // empty' 2>/dev/null)
+        fi
+
+        # Fallback to file-based credentials (older versions)
+        if [ -z "$access_token" ]; then
+            local creds_file="$config_dir/.credentials.json"
+            [ ! -f "$creds_file" ] && creds_file="$HOME/.claude/.credentials.json"
+            [ ! -f "$creds_file" ] && return 1
+
+            access_token=$(jq -r '.claudeAiOauth.accessToken // empty' "$creds_file" 2>/dev/null)
+            [ -z "$access_token" ] && return 1
+            sub_type=$(jq -r '.claudeAiOauth.subscriptionType // empty' "$creds_file" 2>/dev/null)
+        fi
+
         [ -z "$access_token" ] && return 1
-
-        local sub_type
-        sub_type=$(jq -r '.claudeAiOauth.subscriptionType // empty' "$creds_file" 2>/dev/null)
 
         # Skip for API-only users (no quota system)
         case "$sub_type" in
-            ""|api|*api*) return 1 ;;
+            api|*api*) return 1 ;;
         esac
-
-        # Check token expiry
-        local expires_at
-        expires_at=$(jq -r '.claudeAiOauth.expiresAt // 0' "$creds_file" 2>/dev/null)
-        local now_ms=$(($(date +%s) * 1000))
-        if [ "$expires_at" -gt 0 ] && [ "$now_ms" -gt "$expires_at" ]; then
-            return 1  # Token expired
-        fi
 
         # Call the usage API
         local response

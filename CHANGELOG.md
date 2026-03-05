@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Read OAuth credentials from macOS Keychain for Claude Code 2.x+ (profile-specific service names with SHA256 hash)
+- Fall back to `.credentials.json` for older Claude Code versions and non-macOS platforms
+- Allow empty `subscriptionType` to proceed with API call instead of blocking (only skip explicit `api` type)
+
 ## [1.0.0] - 2026-03-04
 
 ### Added

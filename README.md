@@ -96,7 +96,9 @@ Remove any module from the array to hide it.
 
 1. Claude Code pipes JSON context (model, workspace, context window) to the script via stdin
 2. The script reads `~/.claude/.statusline-config.json` to know which modules are enabled
-3. For the usage module: reads OAuth credentials from `~/.claude/.credentials.json` to fetch quota data from the Anthropic API
+3. For the usage module: reads OAuth credentials to fetch quota data from the Anthropic API
+   - **macOS (Claude Code 2.x+):** reads from the macOS Keychain using profile-specific service names
+   - **Fallback:** reads from `~/.claude/.credentials.json` (older Claude Code versions or non-macOS)
 4. Usage data is cached locally (`~/.claude/.usage-cache/usage.json`) for 60 seconds to avoid blocking the statusline
 5. Git info is gathered from the current workspace directory
 6. Only enabled modules are rendered into the final colorized line
