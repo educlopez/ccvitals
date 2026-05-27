@@ -75,19 +75,19 @@ setup() {
     [ "$modules" = "context,model" ]
 }
 
-@test "install: --all creates config with all 5 modules" {
+@test "install: --all creates config with all 7 modules" {
     run bash "$INSTALLER" --all
     [ "$status" -eq 0 ]
 
     [ -f "$CLAUDE_CONFIG_DIR/.statusline-config.json" ]
     local count
     count=$(jq '.modules | length' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$count" -eq 5 ]
+    [ "$count" -eq 7 ]
 
-    # Verify all module names are present
+    # Verify all module names are present (core + tool modules)
     local modules
     modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$modules" = "context,directory,git,model,usage" ]
+    [ "$modules" = "codegraph,context,directory,git,model,rtk,usage" ]
 }
 
 # ─── Settings.json handling ───
@@ -151,49 +151,41 @@ setup() {
     [[ "$content" == "#!/usr/bin/env bash" ]]
 }
 
-@test "install: without --force existing script is preserved" {
+@test "install: existing real file is backed up and replaced with a symlink" {
     mkdir -p "$CLAUDE_CONFIG_DIR"
     echo "original-content" > "$CLAUDE_CONFIG_DIR/statusline-command.sh"
 
     run bash "$INSTALLER" --all
     [ "$status" -eq 0 ]
 
-    # Script should still have original content (not overwritten)
-    local content
-    content=$(cat "$CLAUDE_CONFIG_DIR/statusline-command.sh")
-    [ "$content" = "original-content" ]
-    [[ "$output" == *"already exists"* ]]
+    # The installed path is now a symlink into the repo
+    [ -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+
+    # The displaced file is preserved as a backup
+    [ -f "$CLAUDE_CONFIG_DIR/statusline-command.sh.backup" ]
+    local backup
+    backup=$(cat "$CLAUDE_CONFIG_DIR/statusline-command.sh.backup")
+    [ "$backup" = "original-content" ]
+
+    [[ "$output" == *"backup"* ]]
 }
 
-# ─── Update mode ───
+# ─── Idempotency (symlink workflow) ───
 
-@test "install: --update downloads script but does not touch config or settings" {
-    mkdir -p "$CLAUDE_CONFIG_DIR"
-    # Pre-create a config and settings
-    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
-    echo '{"statusLine":{"type":"command","command":"old"}}' > "$CLAUDE_CONFIG_DIR/settings.json"
-    echo "old-script" > "$CLAUDE_CONFIG_DIR/statusline-command.sh"
-
-    run bash "$INSTALLER" --update
+@test "install: re-running detects the existing symlink and relinks cleanly" {
+    # First install creates the symlink
+    run bash "$INSTALLER" --all
     [ "$status" -eq 0 ]
+    [ -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
 
-    # Script should be updated (not "old-script")
-    local first_line
-    first_line=$(head -1 "$CLAUDE_CONFIG_DIR/statusline-command.sh")
-    [[ "$first_line" == "#!/usr/bin/env bash" ]]
+    # Second run detects the correct symlink and leaves it in place
+    run bash "$INSTALLER" --all
+    [ "$status" -eq 0 ]
+    [ -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+    [[ "$output" == *"Already linked"* ]]
 
-    # Config should be untouched
-    local config_modules
-    config_modules=$(jq -r '.modules[0]' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$config_modules" = "model" ]
-
-    # Settings should be untouched
-    local old_cmd
-    old_cmd=$(jq -r '.statusLine.command' "$CLAUDE_CONFIG_DIR/settings.json")
-    [ "$old_cmd" = "old" ]
-
-    # Output should mention "preserved"
-    [[ "$output" == *"preserved"* ]]
+    # No spurious backup is created on the idempotent run
+    [ ! -f "$CLAUDE_CONFIG_DIR/statusline-command.sh.backup" ]
 }
 
 # ─── NO_COLOR ───
