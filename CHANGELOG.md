@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Session lines module** (`lines`) — lines added/removed this session, e.g. `+264 -195`, read from Claude Code's `cost` data
+- **Mode badge module** (`mode`) — reasoning effort level + fast-mode flag, e.g. `⚡ xhigh`
+- Context-pressure alert: the `context` module turns red with a `⚠` when the context is large (≥150k tokens or `exceeds_200k_tokens`), nudging `/compact`
+
 ## [1.1.0] - 2026-05-27
 
 ### Added

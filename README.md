@@ -63,7 +63,7 @@ Re-run the installer with `--force`, or edit `~/.claude/.statusline-config.json`
 
 ```json
 {
-  "modules": ["directory", "model", "context", "usage", "git", "rtk", "codegraph"]
+  "modules": ["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode"]
 }
 ```
 
@@ -75,16 +75,19 @@ Remove any module from the array to hide it.
 |--------|---------------|
 | `directory` | Current project folder name |
 | `model` | Active model (Opus 4.6, Sonnet 4.6, etc.) |
-| `context` | Context window progress bar + percentage |
+| `context` | Context window progress bar + percentage; turns red with a `⚠` when the context is large (≥150k tokens or over 200k) — a nudge to `/compact`, since long context is expensive even when cached |
 | `usage` | 5h quota bar, reset timer, plan badge (Pro/Max/Team), 7d warning |
 | `git` | Branch name, changed files count, lines added/removed |
 | `rtk` | [RTK](https://github.com/) token-savings % — e.g. `rtk 86.8%↓` (needs the `rtk` CLI) |
 | `codegraph` | CodeGraph index size + stale marker — e.g. `⬡ 11.7k ⚠3` (needs the `codegraph` CLI; only shows in indexed projects) |
+| `lines` | Lines added/removed this session — e.g. `+264 -195` (cumulative agent edits, distinct from the git working-tree diff) |
+| `mode` | Reasoning effort level + fast-mode flag — e.g. `⚡ xhigh` |
 
-> `rtk` and `codegraph` are **opt-in** (off by default). They cache their
-> output (rtk 60s globally, codegraph 15s per project) and refresh in the
-> background, so they don't slow down rendering. Each silently hides itself
-> when its CLI isn't installed.
+> `rtk`, `codegraph`, `lines`, and `mode` are **opt-in** (off by default).
+> `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
+> project) and refresh in the background, so they don't slow down rendering;
+> each silently hides itself when its CLI isn't installed. `lines` and `mode`
+> read straight from the data Claude Code passes in, at zero extra cost.
 
 ## Features
 

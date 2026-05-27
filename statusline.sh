@@ -21,6 +21,8 @@ mod_usage=true
 mod_git=true
 mod_rtk=false
 mod_codegraph=false
+mod_lines=false
+mod_mode=false
 
 if [ -f "$statusline_config" ]; then
     modules=$(jq -r '.modules[]?' "$statusline_config" 2>/dev/null)
@@ -33,6 +35,8 @@ if [ -f "$statusline_config" ]; then
         mod_git=false
         mod_rtk=false
         mod_codegraph=false
+        mod_lines=false
+        mod_mode=false
         while IFS= read -r mod; do
             case "$mod" in
                 directory) mod_directory=true ;;
@@ -42,6 +46,8 @@ if [ -f "$statusline_config" ]; then
                 git)       mod_git=true ;;
                 rtk)       mod_rtk=true ;;
                 codegraph) mod_codegraph=true ;;
+                lines)     mod_lines=true ;;
+                mode)      mod_mode=true ;;
             esac
         done <<< "$modules"
     fi
@@ -85,7 +91,17 @@ if [ "$mod_context" = true ]; then
     for ((i=0; i<filled; i++)); do bar+="█"; done
     for ((i=0; i<empty; i++)); do bar+="░"; done
 
-    context_info="${GRAY}${bar}${NC} ${context_percent}%"
+    # Context-pressure alert: large absolute context is expensive even when cached.
+    # Flag at 150k tokens, or whenever Claude Code reports it exceeds 200k.
+    exceeds_200k=$(echo "$input" | jq -r '.exceeds_200k_tokens // false')
+    ctx_color="$NC"
+    ctx_warn=""
+    if [ "$exceeds_200k" = "true" ] || { [ "${current_tokens:-0}" -ge 150000 ] 2>/dev/null; }; then
+        ctx_color="$RED"
+        ctx_warn=" ${RED}⚠${NC}"
+    fi
+
+    context_info="${GRAY}${bar}${NC} ${ctx_color}${context_percent}%${NC}${ctx_warn}"
 fi
 
 # --- Usage/Quota fetch (cached) ---
@@ -406,6 +422,29 @@ if [ "$mod_codegraph" = true ] && command -v codegraph >/dev/null 2>&1 && [ -d "
     fi
 fi
 
+# --- Session lines (cumulative agent edits this session, from stdin) ---
+lines_info=""
+if [ "$mod_lines" = true ]; then
+    l_added=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
+    l_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
+    if { [ "${l_added:-0}" -gt 0 ] 2>/dev/null; } || { [ "${l_removed:-0}" -gt 0 ] 2>/dev/null; }; then
+        lines_info=" ${GRAY}|${NC}"
+        [ "${l_added:-0}" -gt 0 ] 2>/dev/null && lines_info="${lines_info} ${GREEN}+${l_added}${NC}"
+        [ "${l_removed:-0}" -gt 0 ] 2>/dev/null && lines_info="${lines_info} ${RED}-${l_removed}${NC}"
+    fi
+fi
+
+# --- Reasoning/mode badge (effort level + fast-mode flag, from stdin) ---
+mode_info=""
+if [ "$mod_mode" = true ]; then
+    m_fast=$(echo "$input" | jq -r '.fast_mode // false')
+    m_effort=$(echo "$input" | jq -r '.effort.level // empty')
+    m_parts=""
+    [ "$m_fast" = "true" ] && m_parts="⚡"
+    [ -n "$m_effort" ] && m_parts="${m_parts}${m_parts:+ }${m_effort}"
+    [ -n "$m_parts" ] && mode_info=" ${GRAY}|${NC} ${MAGENTA}${m_parts}${NC}"
+fi
+
 # --- Git info ---
 git_info=""
 if [ "$mod_git" = true ]; then
@@ -452,15 +491,17 @@ done
 # Append usage info (already has leading separator)
 output="${output}${usage_info}"
 
-# Append rtk savings (already has leading separator)
+# Append rtk savings, then the reasoning/mode badge (each has a leading separator)
 output="${output}${rtk_info}"
+output="${output}${mode_info}"
 
 # Append git info with separator
 if [ -n "$git_info" ]; then
     output="${output} ${GRAY}|${NC}${git_info}"
 fi
 
-# Append codegraph index health (already has leading separator)
+# Append session lines and codegraph index health (each has a leading separator)
+output="${output}${lines_info}"
 output="${output}${cg_info}"
 
 echo -e "$output"
