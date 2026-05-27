@@ -87,7 +87,39 @@ usage_info=""
 if [ "$mod_usage" = true ]; then
     cache_dir="$config_dir/.usage-cache"
     cache_file="$cache_dir/usage.json"
-    cache_ttl=60  # seconds
+    last_good_file="$cache_dir/usage-last-good.json"
+    cache_ttl=300         # seconds (5 min) — normal cache
+    cache_failure_ttl=120 # seconds (2 min) — backoff for failed/rate-limited requests
+
+    # Read credentials from macOS Keychain (Claude Code 2.x+)
+    # Claude Code stores OAuth tokens in Keychain with profile-specific service names:
+    #   ~/.claude           -> "Claude Code-credentials"
+    #   custom config dir   -> "Claude Code-credentials-<sha256_prefix>"
+    read_keychain_creds() {
+        [ "$(uname)" != "Darwin" ] && return 1
+
+        local keychain_service="Claude Code-credentials"
+        local normalized_dir
+        normalized_dir=$(cd "$config_dir" 2>/dev/null && pwd -P || echo "$config_dir")
+        local default_dir
+        default_dir=$(cd "$HOME/.claude" 2>/dev/null && pwd -P || echo "$HOME/.claude")
+
+        if [ "$normalized_dir" != "$default_dir" ]; then
+            local hash
+            hash=$(printf '%s' "$config_dir" | shasum -a 256 | cut -c1-8)
+            keychain_service="Claude Code-credentials-${hash}"
+        fi
+
+        local keychain_data
+        keychain_data=$(/usr/bin/security find-generic-password -s "$keychain_service" -w 2>/dev/null)
+        if [ -z "$keychain_data" ]; then
+            # Fallback to legacy service name
+            keychain_data=$(/usr/bin/security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
+        fi
+        [ -z "$keychain_data" ] && return 1
+
+        echo "$keychain_data"
+    }
 
     # Read credentials from macOS Keychain (Claude Code 2.x+)
     # Claude Code stores OAuth tokens in Keychain with profile-specific service names:
@@ -149,47 +181,104 @@ if [ "$mod_usage" = true ]; then
             api|*api*) return 1 ;;
         esac
 
-        # Call the usage API
+
+        # Call the usage API (capture headers + body to read retry-after on 429)
+        local tmp_headers
+        tmp_headers=$(mktemp)
         local response
-        response=$(curl -s --max-time 5 \
+        response=$(curl -s --max-time 10 -D "$tmp_headers" \
             -H "Authorization: Bearer $access_token" \
             -H "anthropic-beta: oauth-2025-04-20" \
             -H "User-Agent: claude-statusline/$STATUSLINE_VERSION" \
             "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
 
-        [ -z "$response" ] && return 1
+        # Check for rate limit or failure
+        local http_status
+        http_status=$(head -1 "$tmp_headers" 2>/dev/null | grep -oE '[0-9]{3}' | head -1)
+
+        if [ "$http_status" = "429" ] || [ -z "$response" ]; then
+            # Read retry-after header for smart backoff
+            local retry_after
+            retry_after=$(grep -i '^retry-after:' "$tmp_headers" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+            rm -f "$tmp_headers"
+            # Ensure minimum backoff (API may return retry-after: 0)
+            [ -z "$retry_after" ] || [ "$retry_after" -lt "$cache_failure_ttl" ] 2>/dev/null && retry_after=$cache_failure_ttl
+            cache_failure "$sub_type" "$retry_after"
+            return 1
+        fi
+        rm -f "$tmp_headers"
+
+        # Non-200 or invalid response
+        if [ "$http_status" != "200" ]; then
+            cache_failure "$sub_type" "$cache_failure_ttl"
+            return 1
+        fi
 
         # Validate response has expected structure
-        echo "$response" | jq -e '.five_hour or .seven_day' >/dev/null 2>&1 || return 1
+        if ! echo "$response" | jq -e '.five_hour or .seven_day' >/dev/null 2>&1; then
+            cache_failure "$sub_type" "$cache_failure_ttl"
+            return 1
+        fi
 
-        # Write cache
+        # Write cache + save as last known good
         mkdir -p "$cache_dir"
         jq -n --argjson data "$response" --arg ts "$(date +%s)" --arg plan "$sub_type" \
-            '{data: $data, timestamp: ($ts | tonumber), plan: $plan}' > "$cache_file" 2>/dev/null
+            '{data: $data, timestamp: ($ts | tonumber), plan: $plan, error: false}' > "$cache_file" 2>/dev/null
+        cp "$cache_file" "$last_good_file" 2>/dev/null
+    }
+
+    # Cache failed API calls to prevent retry storms
+    # $1 = plan, $2 = retry TTL in seconds (from retry-after header or default)
+    cache_failure() {
+        local plan="${1:-}"
+        local retry_ttl="${2:-$cache_failure_ttl}"
+        mkdir -p "$cache_dir"
+        jq -n --arg ts "$(date +%s)" --arg plan "$plan" --arg ttl "$retry_ttl" \
+            '{data: null, timestamp: ($ts | tonumber), plan: $plan, error: true, retry_ttl: ($ttl | tonumber)}' > "$cache_file" 2>/dev/null
+    }
+
+    # Render best available data: current cache if good, else last known good
+    render_best_available() {
+        if [ -f "$cache_file" ]; then
+            local is_error
+            is_error=$(jq -r '.error // false' "$cache_file" 2>/dev/null)
+            if [ "$is_error" != "true" ]; then
+                render_usage "$cache_file"
+                return
+            fi
+        fi
+        # Fallback to last known good data
+        [ -f "$last_good_file" ] && render_usage "$last_good_file"
     }
 
     get_usage_display() {
         local now=$(date +%s)
 
-        # Check cache freshness
+        # Check cache freshness (respect retry-after on failures)
         if [ -f "$cache_file" ]; then
-            local cached_ts
+            local cached_ts is_error ttl
             cached_ts=$(jq -r '.timestamp // 0' "$cache_file" 2>/dev/null)
+            is_error=$(jq -r '.error // false' "$cache_file" 2>/dev/null)
+            if [ "$is_error" = "true" ]; then
+                ttl=$(jq -r '.retry_ttl // '"$cache_failure_ttl" "$cache_file" 2>/dev/null)
+            else
+                ttl=$cache_ttl
+            fi
             local age=$(( now - cached_ts ))
-            if [ "$age" -lt "$cache_ttl" ]; then
-                render_usage "$cache_file"
+            if [ "$age" -lt "$ttl" ]; then
+                render_best_available
                 return
             fi
         fi
 
-        # Cache stale or missing — fetch in background to not block statusline
+        # Cache stale or missing — fetch in background, show best available now
         if [ -f "$cache_file" ]; then
-            render_usage "$cache_file"
+            render_best_available
             fetch_usage &
         else
-            # First run — fetch synchronously (one-time ~1s delay)
+            # First run — fetch synchronously (one-time delay)
             fetch_usage
-            [ -f "$cache_file" ] && render_usage "$cache_file"
+            render_best_available
         fi
     }
 
@@ -243,8 +332,8 @@ if [ "$mod_usage" = true ]; then
             local clean_date
             clean_date=$(echo "$reset_at" | sed -E 's/\.[0-9]+//; s/\+00:00$/Z/')
             local reset_epoch
-            reset_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
-                || date -d "$clean_date" +%s 2>/dev/null)
+            reset_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
+                || date -u -d "$clean_date" +%s 2>/dev/null)
             if [ -n "$reset_epoch" ]; then
                 local remaining=$(( reset_epoch - $(date +%s) ))
                 if [ "$remaining" -gt 0 ]; then
