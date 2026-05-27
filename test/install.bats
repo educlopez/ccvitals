@@ -90,6 +90,24 @@ setup() {
     [ "$modules" = "codegraph,context,directory,git,lines,mode,model,rtk,usage" ]
 }
 
+@test "install: --line2 splits modules into a second row" {
+    run bash "$INSTALLER" --modules=model,context,git --line2=context
+    [ "$status" -eq 0 ]
+
+    local line1 line2
+    line1=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    line2=$(jq -r '.modules_line2 | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [ "$line1" = "git,model" ]
+    [ "$line2" = "context" ]
+}
+
+@test "install: without --line2 no modules_line2 key is written" {
+    run bash "$INSTALLER" --modules=model,git
+    [ "$status" -eq 0 ]
+    run jq -e '.modules_line2' "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    [ "$status" -ne 0 ]
+}
+
 # ─── Settings.json handling ───
 
 @test "install: fresh install creates settings.json with statusLine key" {

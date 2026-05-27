@@ -142,11 +142,14 @@ Options:
   --modules=LIST     Install specific modules (comma-separated, no spaces)
                      Available: directory, model, context, usage, git, rtk,
                      codegraph, lines, mode
+  --line2=LIST       Render these modules on a second row (comma-separated).
+                     They are placed in modules_line2; the rest stay on line 1.
 
 Examples:
   ./install.sh                          # interactive install
   ./install.sh --all                    # all modules, no menu
   ./install.sh --modules=directory,model
+  ./install.sh --all --line2=context,usage,rtk,mode,lines   # two-line layout
   ./install.sh --force                  # repair an existing install
 
 Modules:
@@ -175,6 +178,7 @@ HELPEOF
 FORCE=false
 SKIP_MENU=false
 MODULES_ARG=""
+LINE2_ARG=""
 
 for arg in "$@"; do
     case "$arg" in
@@ -182,6 +186,7 @@ for arg in "$@"; do
         --force)   FORCE=true ;;
         --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
+        --line2=*) LINE2_ARG="${arg#--line2=}" ;;
         --version) echo "claude-statusline v$STATUSLINE_VERSION"; exit 0 ;;
     esac
 done
@@ -277,6 +282,7 @@ ok "Environment validated"
 # ─── Determine selected modules ───
 
 SELECTED_MODULES=""
+LINE2_MODULES=""
 
 if [ "$SKIP_MENU" = true ] && [ -n "$MODULES_ARG" ]; then
     # From --modules or --all flag
@@ -382,11 +388,32 @@ elif [ "$SKIP_MENU" = false ]; then
             fi
         done
         SELECTED_MODULES="$result"
+
+        # Optional second line: pick which enabled modules drop to row 2
+        echo ""
+        echo -ne "  ${BOLD}Second line?${NC} numbers for line 2 (e.g. 3 4 6), or Enter for one line: "
+        if read -r l2_choice < /dev/tty 2>/dev/null && [ -n "$l2_choice" ]; then
+            l2_result=""
+            for tok in $l2_choice; do
+                case "$tok" in
+                    [1-9])
+                        if [ "$(get_en "$tok")" -eq 1 ]; then
+                            n=$(get_mod_name "$tok")
+                            if [ -n "$l2_result" ]; then l2_result="$l2_result,$n"; else l2_result="$n"; fi
+                        fi
+                        ;;
+                esac
+            done
+            LINE2_MODULES="$l2_result"
+        fi
     else
         # Non-interactive, no flags: default all
         SELECTED_MODULES="directory,model,context,usage,git"
     fi
 fi
+
+# Explicit --line2 flag wins over (or supplies, in non-interactive mode) the second row
+[ -n "$LINE2_ARG" ] && LINE2_MODULES="$LINE2_ARG"
 
 # Fallback
 if [ -z "$SELECTED_MODULES" ]; then
@@ -433,10 +460,24 @@ fi
 
 step "Writing module configuration..."
 
-modules_json=$(echo "$SELECTED_MODULES" | tr ',' '\n' | jq -R . | jq -s '{modules: .}')
+# Build config. Modules in LINE2_MODULES go under "modules_line2" (row 2);
+# the rest stay under "modules" (row 1). Without a second row, only "modules".
+modules_json=$(jq -n \
+    --arg sel "$SELECTED_MODULES" \
+    --arg l2 "$LINE2_MODULES" '
+    ($sel | split(",") | map(select(length > 0))) as $all
+    | ($l2  | split(",") | map(select(length > 0))) as $two
+    | ($two | map(select(. as $m | $all | index($m)))) as $two_valid
+    | { modules: ($all - $two_valid) }
+      + (if ($two_valid | length) > 0 then { modules_line2: $two_valid } else {} end)
+')
 echo "$modules_json" > "$statusline_config"
 track_file "$statusline_config"
-ok "Module config saved to $statusline_config"
+if echo "$modules_json" | jq -e '.modules_line2' >/dev/null 2>&1; then
+    ok "Module config saved to $statusline_config (two-line layout)"
+else
+    ok "Module config saved to $statusline_config"
+fi
 
 # ─── Step — Configure settings.json ───
 

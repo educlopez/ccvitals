@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-27
+
+### Added
+
+- Installer support for the two-line layout: a `--line2=LIST` flag places those modules on row 2 (the rest stay on row 1), and the interactive installer now asks which selected modules should drop to a second line
+
 ## [1.2.0] - 2026-05-27
 
 ### Added

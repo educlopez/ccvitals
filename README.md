@@ -44,9 +44,16 @@ Then restart Claude Code.
 # Skip menu — pick specific modules
 ./install.sh --modules=model,context,usage
 
+# Two-line layout (these modules drop to row 2)
+./install.sh --all --line2=context,usage,rtk,mode,lines
+
 # Combine flags
 ./install.sh --force --modules=context,usage,git
 ```
+
+The interactive installer also asks, after you pick your modules, which of
+them should drop to a second line (enter their numbers, or press Enter for a
+single line).
 
 ### Update
 
