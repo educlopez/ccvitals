@@ -26,8 +26,8 @@ cache_dir="$config_dir/.usage-cache"
 
 info "Claude config directory: $config_dir"
 
-# --- Remove statusline script ---
-if [ -f "$script_file" ]; then
+# --- Remove statusline script (regular file or symlink, even if dangling) ---
+if [ -e "$script_file" ] || [ -L "$script_file" ]; then
     rm "$script_file"
     ok "Removed $script_file"
 else

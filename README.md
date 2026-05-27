@@ -6,8 +6,14 @@ A real-time statusline for [Claude Code](https://docs.anthropic.com/en/docs/clau
 
 ## Install
 
+Clone the repo and run the installer. It **symlinks** `statusline.sh` into your
+Claude config dir, so updating is just `git pull` — and you can keep multiple
+machines in sync through the repo.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/educlopez/claude-statusline/main/install.sh | bash
+git clone https://github.com/educlopez/claude-statusline.git
+cd claude-statusline
+./install.sh
 ```
 
 The installer shows an interactive menu where you pick which modules to enable:
@@ -29,18 +35,27 @@ Then restart Claude Code.
 ### Install options
 
 ```bash
-# Force reinstall (overwrites existing script + config)
-curl -fsSL .../install.sh | bash -s -- --force
+# Force reinstall (relink script + overwrite settings.json statusLine key)
+./install.sh --force
 
 # Skip menu — install all modules
-curl -fsSL .../install.sh | bash -s -- --all
+./install.sh --all
 
 # Skip menu — pick specific modules
-curl -fsSL .../install.sh | bash -s -- --modules=model,context,usage
+./install.sh --modules=model,context,usage
 
 # Combine flags
-curl -fsSL .../install.sh | bash -s -- --force --modules=context,usage,git
+./install.sh --force --modules=context,usage,git
 ```
+
+### Update
+
+```bash
+cd claude-statusline && git pull
+```
+
+Because the script is symlinked, `git pull` updates the statusline instantly —
+no reinstall needed. Restart Claude Code to see the new version.
 
 ### Change modules later
 
@@ -89,8 +104,11 @@ Remove any module from the array to hide it.
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
 - `jq` — JSON processor ([install](https://jqlang.github.io/jq/download/))
-- `curl` — HTTP client (pre-installed on most systems)
+- `git` — to clone and update the repo
 - `bash` 3.2+ (pre-installed on most systems)
+
+> The statusline itself uses `curl` at runtime to fetch your usage quota, but
+> the installer no longer downloads anything — it links the cloned `statusline.sh`.
 
 ## How it works
 
@@ -122,11 +140,13 @@ The installer also respects `CLAUDE_CONFIG_DIR` — run it with the variable set
 
 ## Uninstall
 
+From the cloned repo:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/educlopez/claude-statusline/main/uninstall.sh | bash
+./uninstall.sh
 ```
 
-This removes the statusline script, module config, the `statusLine` key from your settings, and the usage cache directory.
+This removes the statusline symlink, module config, the `statusLine` key from your settings, and the usage cache directory. (The cloned repo is left untouched — delete it manually if you no longer want it.)
 
 ## License
 

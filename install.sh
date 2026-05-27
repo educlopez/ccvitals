@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Statusline Installer
+# Claude Statusline Installer (link mode)
 # https://github.com/educlopez/claude-statusline
 #
+# Run this from a cloned copy of the repo — it does NOT download anything.
+# It symlinks the repo's statusline.sh into your Claude config dir so that
+# `git pull` updates the statusline instantly (ideal for syncing machines).
+#
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/educlopez/claude-statusline/main/install.sh | bash
-#   curl -fsSL ... | bash -s -- --force
-#   curl -fsSL ... | bash -s -- --modules=directory,model,context
-#   curl -fsSL ... | bash -s -- --all
-#   curl -fsSL ... | bash -s -- --update
-#   curl -fsSL ... | bash -s -- --help
+#   git clone https://github.com/educlopez/claude-statusline.git
+#   cd claude-statusline
+#   ./install.sh                       # interactive module menu
+#   ./install.sh --all                 # all modules, no menu
+#   ./install.sh --modules=model,git   # specific modules
+#   ./install.sh --force               # repair/overwrite an existing install
+#   ./install.sh --help
 
 STATUSLINE_VERSION="1.0.0"
 
-REPO_URL="https://raw.githubusercontent.com/educlopez/claude-statusline/main"
 SCRIPT_NAME="statusline-command.sh"
+
+# Repo this installer lives in (statusline.sh sits next to it)
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+SOURCE_SCRIPT="$REPO_DIR/statusline.sh"
 
 # Module descriptions for interactive menu
 MOD_DESC_1="Directory      my-project"
@@ -77,11 +85,11 @@ cleanup() {
     if [ "$INSTALL_SUCCESS" = true ]; then
         return
     fi
-    # Non-zero exit: restore backups and remove created files
+    # Non-zero exit: restore backups and remove created files/links
     for f in "${CREATED_FILES[@]+"${CREATED_FILES[@]}"}"; do
-        if [ -f "${f}.backup" ]; then
+        if [ -e "${f}.backup" ]; then
             mv "${f}.backup" "$f" 2>/dev/null || true
-        elif [ -f "$f" ]; then
+        elif [ -e "$f" ] || [ -L "$f" ]; then
             rm -f "$f" 2>/dev/null || true
         fi
     done
@@ -111,34 +119,28 @@ show_help() {
     cat <<HELPEOF
 Claude Statusline v${STATUSLINE_VERSION} — A customizable statusline for Claude Code
 
+This installer runs from a cloned copy of the repo and symlinks
+statusline.sh into your Claude config dir. Update later with: git pull
+
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/educlopez/claude-statusline/main/install.sh | bash
-  curl -fsSL ... | bash -s -- [OPTIONS]
+  git clone https://github.com/educlopez/claude-statusline.git
+  cd claude-statusline
+  ./install.sh [OPTIONS]
 
 Options:
   --help, -h         Show this help message and exit
   --version          Show version and exit
-  --force            Overwrite existing installation (script, config, and settings)
-  --update           Re-download the statusline script only (preserves config and settings)
+  --force            Repair/overwrite an existing install (relink script,
+                     overwrite the statusLine key in settings.json)
   --all              Install all modules without showing the interactive menu
   --modules=LIST     Install specific modules (comma-separated, no spaces)
                      Available modules: directory, model, context, usage, git
 
 Examples:
-  # Interactive install (choose modules from menu)
-  curl -fsSL .../install.sh | bash
-
-  # Install all modules non-interactively
-  curl -fsSL .../install.sh | bash -s -- --all
-
-  # Install only directory and model modules
-  curl -fsSL .../install.sh | bash -s -- --modules=directory,model
-
-  # Update the statusline script without changing config
-  curl -fsSL .../install.sh | bash -s -- --update
-
-  # Force overwrite an existing installation
-  curl -fsSL .../install.sh | bash -s -- --force
+  ./install.sh                          # interactive install
+  ./install.sh --all                    # all modules, no menu
+  ./install.sh --modules=directory,model
+  ./install.sh --force                  # repair an existing install
 
 Modules:
   directory    Show current project directory name
@@ -147,8 +149,12 @@ Modules:
   usage        Show usage quota with remaining time
   git          Show git branch, changed files, and diff stats
 
+Update:
+  cd $REPO_DIR && git pull
+  (the symlink picks up the new version automatically)
+
 Uninstall:
-  curl -fsSL https://raw.githubusercontent.com/educlopez/claude-statusline/main/uninstall.sh | bash
+  ./uninstall.sh
 HELPEOF
     exit 0
 }
@@ -158,7 +164,6 @@ HELPEOF
 FORCE=false
 SKIP_MENU=false
 MODULES_ARG=""
-UPDATE_MODE=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -166,7 +171,6 @@ for arg in "$@"; do
         --force)   FORCE=true ;;
         --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
-        --update)  UPDATE_MODE=true; SKIP_MENU=true ;;
         --version) echo "claude-statusline v$STATUSLINE_VERSION"; exit 0 ;;
     esac
 done
@@ -174,11 +178,7 @@ done
 # ─── Phase 1.3: Step counter ───
 
 CURRENT_STEP=0
-if [ "$UPDATE_MODE" = true ]; then
-    TOTAL_STEPS=3
-else
-    TOTAL_STEPS=6
-fi
+TOTAL_STEPS=6
 
 step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -235,10 +235,12 @@ suggest_jq_install() {
 step "Checking prerequisites..."
 
 command -v bash >/dev/null 2>&1 || error "bash is required"
-command -v curl >/dev/null 2>&1 || error "curl is required — install it first"
 command -v jq   >/dev/null 2>&1 || suggest_jq_install
 
-ok "All prerequisites found (bash, curl, jq)"
+# The source script must exist in this clone
+[ -f "$SOURCE_SCRIPT" ] || error "statusline.sh not found next to this installer ($SOURCE_SCRIPT). Run ./install.sh from inside the cloned repo."
+
+ok "All prerequisites found (bash, jq, repo source script)"
 
 # ─── Resolve config directory ───
 
@@ -249,53 +251,17 @@ script_dest="$config_dir/$SCRIPT_NAME"
 statusline_config="$config_dir/.statusline-config.json"
 
 info "Claude config directory: $config_dir"
+info "Linking from repo:        $SOURCE_SCRIPT"
 
 # ─── Phase 3.1: Pre-flight validation ───
 
 step "Validating environment..."
 
+mkdir -p "$config_dir"
 check_writable "$config_dir"
 validate_json "$settings_file"
 
 ok "Environment validated"
-
-# ─── Phase 2.2: --update mode ───
-
-if [ "$UPDATE_MODE" = true ]; then
-    # Update mode: re-download script only, preserve config and settings
-    if [ ! -f "$script_dest" ]; then
-        warn "No prior installation found at $script_dest"
-        warn "Consider running a full install instead (without --update)"
-    fi
-
-    step "Downloading latest statusline script..."
-    mkdir -p "$config_dir"
-    curl -fsSL "$REPO_URL/statusline.sh" -o "$script_dest"
-    chmod +x "$script_dest"
-    track_file "$script_dest"
-    ok "Script updated at $script_dest"
-
-    # ─── Phase 3.2: Claude Code process detection ───
-    if command -v pgrep >/dev/null 2>&1; then
-        if pgrep -f "claude" >/dev/null 2>&1 || pgrep -x "claude" >/dev/null 2>&1; then
-            echo ""
-            warn "${BOLD}Claude Code appears to be running.${NC}"
-            warn "Restart Claude Code for changes to take effect."
-            echo ""
-        fi
-    fi
-
-    INSTALL_SUCCESS=true
-    echo ""
-    echo -e "${GREEN}Claude Statusline v${STATUSLINE_VERSION} updated successfully!${NC}"
-    echo ""
-    echo "  Updated: $script_dest"
-    echo "  Config and settings were preserved."
-    echo ""
-    echo "  Restart Claude Code to see the updated statusline."
-    echo ""
-    exit 0
-fi
 
 # ─── Determine selected modules ───
 
@@ -411,29 +377,40 @@ if [ -z "$SELECTED_MODULES" ]; then
     SELECTED_MODULES="directory,model,context,usage,git"
 fi
 
-# Validate at least one module
-if [ "$SELECTED_MODULES" = "" ]; then
-    error "No modules selected. Run again and pick at least one."
-fi
-
 echo ""
 info "Selected modules: $(echo "$SELECTED_MODULES" | tr ',' ' ')"
 
-# ─── Step — Download statusline script ───
+# ─── Step — Link statusline script ───
 
-step "Downloading statusline script..."
+step "Linking statusline script..."
 
-if [ -f "$script_dest" ] && [ "$FORCE" = false ]; then
-    warn "Statusline script already exists at $script_dest"
-    warn "Use --force to overwrite, or run: curl ... | bash -s -- --force"
-    echo ""
-    info "Skipping script download (existing file preserved)"
-else
-    mkdir -p "$config_dir"
-    curl -fsSL "$REPO_URL/statusline.sh" -o "$script_dest"
-    chmod +x "$script_dest"
+link_ok=false
+if [ -L "$script_dest" ]; then
+    # Already a symlink — check where it points
+    current_target="$(readlink "$script_dest" 2>/dev/null || true)"
+    if [ "$current_target" = "$SOURCE_SCRIPT" ]; then
+        ok "Already linked to this repo — nothing to relink"
+        link_ok=true
+    else
+        warn "Existing symlink points elsewhere: $current_target"
+        rm -f "$script_dest"
+    fi
+elif [ -e "$script_dest" ]; then
+    # A real file is in the way
+    if [ "$FORCE" = true ]; then
+        mv "$script_dest" "$script_dest.backup"
+        info "Backed up existing script to $script_dest.backup"
+    else
+        # Preserve the file as a backup anyway — symlink is the new source of truth
+        mv "$script_dest" "$script_dest.backup"
+        warn "Replaced existing file (backup at $script_dest.backup) — use git to track future changes"
+    fi
+fi
+
+if [ "$link_ok" = false ]; then
+    ln -s "$SOURCE_SCRIPT" "$script_dest"
     track_file "$script_dest"
-    ok "Script installed to $script_dest"
+    ok "Symlinked $script_dest -> $SOURCE_SCRIPT"
 fi
 
 # ─── Step — Write module config ───
@@ -463,7 +440,6 @@ if [ -f "$settings_file" ]; then
         ok "Updated settings.json with statusLine configuration"
     fi
 else
-    mkdir -p "$config_dir"
     jq -n --argjson sl "$statusline_setting" '{statusLine: $sl}' > "$settings_file"
     track_file "$settings_file"
     ok "Created settings.json with statusLine configuration"
@@ -488,17 +464,16 @@ echo ""
 echo -e "${GREEN}Claude Statusline v${STATUSLINE_VERSION} installed successfully!${NC}"
 echo ""
 echo "  What was installed:"
-echo "    Script:   $script_dest"
+echo "    Script:   $script_dest (symlink -> $SOURCE_SCRIPT)"
 echo "    Config:   $statusline_config"
 echo "    Settings: $settings_file (statusLine key)"
 echo ""
 echo "  Enabled modules: $(echo "$SELECTED_MODULES" | tr ',' ' ')"
 echo ""
-echo "  To change modules later, re-run the installer with --force"
-echo "  or edit $statusline_config directly."
+echo "  To update later:   cd $REPO_DIR && git pull"
+echo "  To change modules: re-run ./install.sh --force or edit $statusline_config"
 echo ""
 echo "  Restart Claude Code to see the statusline."
 echo ""
-echo "  To uninstall:"
-echo "    curl -fsSL $REPO_URL/uninstall.sh | bash"
+echo "  To uninstall:      ./uninstall.sh"
 echo ""
