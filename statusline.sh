@@ -127,36 +127,6 @@ if [ "$mod_usage" = true ]; then
         echo "$keychain_data"
     }
 
-    # Read credentials from macOS Keychain (Claude Code 2.x+)
-    # Claude Code stores OAuth tokens in Keychain with profile-specific service names:
-    #   ~/.claude           -> "Claude Code-credentials"
-    #   custom config dir   -> "Claude Code-credentials-<sha256_prefix>"
-    read_keychain_creds() {
-        [ "$(uname)" != "Darwin" ] && return 1
-
-        local keychain_service="Claude Code-credentials"
-        local normalized_dir
-        normalized_dir=$(cd "$config_dir" 2>/dev/null && pwd -P || echo "$config_dir")
-        local default_dir
-        default_dir=$(cd "$HOME/.claude" 2>/dev/null && pwd -P || echo "$HOME/.claude")
-
-        if [ "$normalized_dir" != "$default_dir" ]; then
-            local hash
-            hash=$(printf '%s' "$config_dir" | shasum -a 256 | cut -c1-8)
-            keychain_service="Claude Code-credentials-${hash}"
-        fi
-
-        local keychain_data
-        keychain_data=$(/usr/bin/security find-generic-password -s "$keychain_service" -w 2>/dev/null)
-        if [ -z "$keychain_data" ]; then
-            # Fallback to legacy service name
-            keychain_data=$(/usr/bin/security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
-        fi
-        [ -z "$keychain_data" ] && return 1
-
-        echo "$keychain_data"
-    }
-
     fetch_usage() {
         local access_token=""
         local sub_type=""
