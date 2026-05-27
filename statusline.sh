@@ -207,8 +207,8 @@ if [ "$mod_usage" = true ]; then
             local clean_date
             clean_date=$(echo "$reset_at" | sed -E 's/\.[0-9]+//; s/\+00:00$/Z/')
             local reset_epoch
-            reset_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
-                || date -d "$clean_date" +%s 2>/dev/null)
+            reset_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
+                || date -u -d "$clean_date" +%s 2>/dev/null)
             if [ -n "$reset_epoch" ]; then
                 local remaining=$(( reset_epoch - $(date +%s) ))
                 if [ "$remaining" -gt 0 ]; then
