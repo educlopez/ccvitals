@@ -63,7 +63,7 @@ Re-run the installer with `--force`, or edit `~/.claude/.statusline-config.json`
 
 ```json
 {
-  "modules": ["directory", "model", "context", "usage", "git"]
+  "modules": ["directory", "model", "context", "usage", "git", "rtk", "codegraph"]
 }
 ```
 
@@ -78,6 +78,13 @@ Remove any module from the array to hide it.
 | `context` | Context window progress bar + percentage |
 | `usage` | 5h quota bar, reset timer, plan badge (Pro/Max/Team), 7d warning |
 | `git` | Branch name, changed files count, lines added/removed |
+| `rtk` | [RTK](https://github.com/) token-savings % — e.g. `rtk 86.8%↓` (needs the `rtk` CLI) |
+| `codegraph` | CodeGraph index size + stale marker — e.g. `⬡ 11.7k ⚠3` (needs the `codegraph` CLI; only shows in indexed projects) |
+
+> `rtk` and `codegraph` are **opt-in** (off by default). They cache their
+> output (rtk 60s globally, codegraph 15s per project) and refresh in the
+> background, so they don't slow down rendering. Each silently hides itself
+> when its CLI isn't installed.
 
 ## Features
 

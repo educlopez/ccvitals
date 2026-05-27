@@ -13,12 +13,14 @@ config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 config_dir="${config_dir/#\~/$HOME}"
 statusline_config="$config_dir/.statusline-config.json"
 
-# Default: all modules enabled
+# Default: core modules enabled; tool modules (rtk, codegraph) are opt-in
 mod_directory=true
 mod_model=true
 mod_context=true
 mod_usage=true
 mod_git=true
+mod_rtk=false
+mod_codegraph=false
 
 if [ -f "$statusline_config" ]; then
     modules=$(jq -r '.modules[]?' "$statusline_config" 2>/dev/null)
@@ -29,6 +31,8 @@ if [ -f "$statusline_config" ]; then
         mod_context=false
         mod_usage=false
         mod_git=false
+        mod_rtk=false
+        mod_codegraph=false
         while IFS= read -r mod; do
             case "$mod" in
                 directory) mod_directory=true ;;
@@ -36,6 +40,8 @@ if [ -f "$statusline_config" ]; then
                 context)   mod_context=true ;;
                 usage)     mod_usage=true ;;
                 git)       mod_git=true ;;
+                rtk)       mod_rtk=true ;;
+                codegraph) mod_codegraph=true ;;
             esac
         done <<< "$modules"
     fi
@@ -365,6 +371,71 @@ if [ "$mod_usage" = true ]; then
     get_usage_display
 fi
 
+# --- Tool modules (rtk, codegraph) ---
+tool_cache_dir="$config_dir/.tool-cache"
+
+# cached_run <cache_file> <ttl_seconds> <producer_fn>
+# Prints the cached value when fresh. When stale, prints the stale value
+# immediately and refreshes in the background; on first run fetches once
+# synchronously. Keeps every render cheap regardless of the producer cost.
+cached_run() {
+    local cf="$1" ttl="$2" producer="$3"
+    local now mtime age
+    now=$(date +%s)
+    if [ -f "$cf" ]; then
+        mtime=$(stat -f %m "$cf" 2>/dev/null || stat -c %Y "$cf" 2>/dev/null || echo 0)
+        age=$(( now - mtime ))
+        if [ "$age" -lt "$ttl" ]; then
+            cat "$cf"
+            return
+        fi
+        cat "$cf"
+        ( "$producer" > "$cf.tmp" 2>/dev/null && mv "$cf.tmp" "$cf" 2>/dev/null ) &
+    else
+        mkdir -p "$(dirname "$cf")"
+        "$producer" > "$cf" 2>/dev/null
+        cat "$cf"
+    fi
+}
+
+# rtk: global token-savings percentage (cached 60s)
+rtk_info=""
+if [ "$mod_rtk" = true ] && command -v rtk >/dev/null 2>&1; then
+    rtk_producer() {
+        rtk gain 2>/dev/null | grep -m1 'Tokens saved' \
+            | grep -oE '[0-9]+(\.[0-9]+)?%' | head -1
+    }
+    rtk_val=$(cached_run "$tool_cache_dir/rtk.txt" 60 rtk_producer)
+    [ -n "$rtk_val" ] && rtk_info=" ${GRAY}|${NC} ${CYAN}rtk ${rtk_val}↓${NC}"
+fi
+
+# codegraph: per-project index health, only when a .codegraph index exists (cached 15s)
+cg_info=""
+if [ "$mod_codegraph" = true ] && command -v codegraph >/dev/null 2>&1 && [ -d "$current_dir/.codegraph" ]; then
+    cg_dir="$current_dir"
+    cg_producer() {
+        cd "$cg_dir" 2>/dev/null || return
+        codegraph status --json 2>/dev/null | jq -r '
+            if .initialized != true then empty
+            else
+                (.nodeCount // 0) as $n
+                | (((.pendingChanges.added // 0) + (.pendingChanges.modified // 0) + (.pendingChanges.removed // 0))) as $p
+                | (if $n >= 1000 then (((($n / 100) | floor) / 10) | tostring) + "k" else ($n | tostring) end) as $ns
+                | "\($ns)\t\($p)"
+            end' 2>/dev/null
+    }
+    cg_hash=$(printf '%s' "$cg_dir" | shasum -a 256 2>/dev/null | cut -c1-12)
+    cg_line=$(cached_run "$tool_cache_dir/cg-$cg_hash.txt" 15 cg_producer)
+    if [ -n "$cg_line" ]; then
+        cg_nodes=$(printf '%s' "$cg_line" | cut -f1)
+        cg_pending=$(printf '%s' "$cg_line" | cut -f2)
+        cg_info=" ${GRAY}|${NC} ${CYAN}⬡ ${cg_nodes}${NC}"
+        if [ "${cg_pending:-0}" -gt 0 ] 2>/dev/null; then
+            cg_info="${cg_info} ${YELLOW}⚠${cg_pending}${NC}"
+        fi
+    fi
+fi
+
 # --- Git info ---
 git_info=""
 if [ "$mod_git" = true ]; then
@@ -411,9 +482,15 @@ done
 # Append usage info (already has leading separator)
 output="${output}${usage_info}"
 
+# Append rtk savings (already has leading separator)
+output="${output}${rtk_info}"
+
 # Append git info with separator
 if [ -n "$git_info" ]; then
     output="${output} ${GRAY}|${NC}${git_info}"
 fi
+
+# Append codegraph index health (already has leading separator)
+output="${output}${cg_info}"
 
 echo -e "$output"

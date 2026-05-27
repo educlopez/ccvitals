@@ -31,6 +31,8 @@ MOD_DESC_2="Model          Opus 4.6"
 MOD_DESC_3="Context        ░░░░░░░░░░░░░░░ 12%"
 MOD_DESC_4="Usage quota    Max ██████░░░░ 58% 3h42m"
 MOD_DESC_5="Git status     (main | 3 files +42 -8)"
+MOD_DESC_6="RTK savings    rtk 86.8%↓               (needs rtk)"
+MOD_DESC_7="CodeGraph      ⬡ 11.7k ⚠3               (needs codegraph)"
 
 # ─── Phase 1.1: Color setup with NO_COLOR / TTY detection ───
 
@@ -102,14 +104,15 @@ trap cleanup EXIT
 get_mod_desc() {
     case "$1" in
         1) echo "$MOD_DESC_1" ;; 2) echo "$MOD_DESC_2" ;; 3) echo "$MOD_DESC_3" ;;
-        4) echo "$MOD_DESC_4" ;; 5) echo "$MOD_DESC_5" ;;
+        4) echo "$MOD_DESC_4" ;; 5) echo "$MOD_DESC_5" ;; 6) echo "$MOD_DESC_6" ;;
+        7) echo "$MOD_DESC_7" ;;
     esac
 }
 
 get_mod_name() {
     case "$1" in
         1) echo "directory" ;; 2) echo "model" ;; 3) echo "context" ;;
-        4) echo "usage" ;; 5) echo "git" ;;
+        4) echo "usage" ;; 5) echo "git" ;; 6) echo "rtk" ;; 7) echo "codegraph" ;;
     esac
 }
 
@@ -134,7 +137,7 @@ Options:
                      overwrite the statusLine key in settings.json)
   --all              Install all modules without showing the interactive menu
   --modules=LIST     Install specific modules (comma-separated, no spaces)
-                     Available modules: directory, model, context, usage, git
+                     Available: directory, model, context, usage, git, rtk, codegraph
 
 Examples:
   ./install.sh                          # interactive install
@@ -148,6 +151,8 @@ Modules:
   context      Show context window usage as a progress bar
   usage        Show usage quota with remaining time
   git          Show git branch, changed files, and diff stats
+  rtk          Show RTK token-savings % (needs the rtk CLI)
+  codegraph    Show CodeGraph index size + stale marker (needs codegraph CLI)
 
 Update:
   cd $REPO_DIR && git pull
@@ -169,7 +174,7 @@ for arg in "$@"; do
     case "$arg" in
         --help|-h) show_help ;;
         --force)   FORCE=true ;;
-        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git" ;;
+        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --version) echo "claude-statusline v$STATUSLINE_VERSION"; exit 0 ;;
     esac
@@ -280,13 +285,14 @@ elif [ "$SKIP_MENU" = false ]; then
     fi
 
     if [ "$CAN_INTERACT" = true ]; then
-        # Track enabled state: 1=on, 0=off (all on by default)
-        en_1=1; en_2=1; en_3=1; en_4=1; en_5=1
+        # Track enabled state: 1=on, 0=off. Core modules on, tool modules off.
+        en_1=1; en_2=1; en_3=1; en_4=1; en_5=1; en_6=0; en_7=0
 
         get_en() {
             case "$1" in
                 1) echo "$en_1" ;; 2) echo "$en_2" ;; 3) echo "$en_3" ;;
-                4) echo "$en_4" ;; 5) echo "$en_5" ;;
+                4) echo "$en_4" ;; 5) echo "$en_5" ;; 6) echo "$en_6" ;;
+                7) echo "$en_7" ;;
             esac
         }
 
@@ -297,6 +303,8 @@ elif [ "$SKIP_MENU" = false ]; then
                 3) if [ "$en_3" -eq 1 ]; then en_3=0; else en_3=1; fi ;;
                 4) if [ "$en_4" -eq 1 ]; then en_4=0; else en_4=1; fi ;;
                 5) if [ "$en_5" -eq 1 ]; then en_5=0; else en_5=1; fi ;;
+                6) if [ "$en_6" -eq 1 ]; then en_6=0; else en_6=1; fi ;;
+                7) if [ "$en_7" -eq 1 ]; then en_7=0; else en_7=1; fi ;;
             esac
         }
 
@@ -304,7 +312,7 @@ elif [ "$SKIP_MENU" = false ]; then
             echo ""
             echo -e "${BOLD}Claude Statusline — Choose your modules:${NC}"
             echo ""
-            for i in 1 2 3 4 5; do
+            for i in 1 2 3 4 5 6 7; do
                 local desc
                 desc=$(get_mod_desc "$i")
                 if [ "$(get_en "$i")" -eq 1 ]; then
@@ -318,7 +326,7 @@ elif [ "$SKIP_MENU" = false ]; then
         }
 
         # ─── Phase 1.4: ANSI escapes instead of tput ───
-        MENU_LINES=10
+        MENU_LINES=12
         draw_menu
 
         while true; do
@@ -333,14 +341,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     break
                     ;;
                 a|A)
-                    en_1=1; en_2=1; en_3=1; en_4=1; en_5=1
+                    en_1=1; en_2=1; en_3=1; en_4=1; en_5=1; en_6=1; en_7=1
                     # Redraw using ANSI escapes (Phase 1.4)
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
                     done
                     draw_menu
                     ;;
-                [1-5])
+                [1-7])
                     toggle "$choice"
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
@@ -348,14 +356,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     draw_menu
                     ;;
                 *)
-                    echo -e "  ${YELLOW}Enter 1-5, 'a' for all, or Enter to confirm${NC}"
+                    echo -e "  ${YELLOW}Enter 1-7, 'a' for all, or Enter to confirm${NC}"
                     ;;
             esac
         done
 
         # Build selected modules string
         result=""
-        for i in 1 2 3 4 5; do
+        for i in 1 2 3 4 5 6 7; do
             if [ "$(get_en "$i")" -eq 1 ]; then
                 name=$(get_mod_name "$i")
                 if [ -n "$result" ]; then
