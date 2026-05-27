@@ -4,7 +4,7 @@ set -euo pipefail
 # Claude Statusline Uninstaller
 # https://github.com/educlopez/claude-statusline
 
-STATUSLINE_VERSION="1.1.0"
+STATUSLINE_VERSION="1.2.0"
 
 # Colors
 GREEN='\033[0;32m'
