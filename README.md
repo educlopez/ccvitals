@@ -69,6 +69,24 @@ Re-run the installer with `--force`, or edit `~/.claude/.statusline-config.json`
 
 Remove any module from the array to hide it.
 
+### Two-line layout
+
+Add an optional `modules_line2` array to render those modules on a **second row**. Modules stay in `modules` for line 1; anything in `modules_line2` drops to line 2. Omit `modules_line2` entirely for a single line.
+
+```json
+{
+  "modules": ["directory", "model", "git", "codegraph"],
+  "modules_line2": ["context", "usage", "rtk", "mode", "lines"]
+}
+```
+
+Renders as:
+
+```
+my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
+███░░ 21% ⚠ | Max 58% 3h42m | rtk 86.8%↓ | ⚡ xhigh | +264 -195
+```
+
 ## Modules
 
 | Module | What it shows |

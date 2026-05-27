@@ -24,10 +24,16 @@ mod_codegraph=false
 mod_lines=false
 mod_mode=false
 
+# Modules listed under "modules_line2" render on a second row (space-delimited
+# set checked during composition). Empty = everything on one line.
+line2_set=""
+
 if [ -f "$statusline_config" ]; then
     modules=$(jq -r '.modules[]?' "$statusline_config" 2>/dev/null)
-    if [ -n "$modules" ]; then
-        # Disable all, then enable only configured ones
+    modules2=$(jq -r '.modules_line2[]?' "$statusline_config" 2>/dev/null)
+    line2_set=$(printf '%s' "$modules2" | tr '\n' ' ')
+    if [ -n "$modules" ] || [ -n "$modules2" ]; then
+        # Disable all, then enable the union of both rows
         mod_directory=false
         mod_model=false
         mod_context=false
@@ -49,7 +55,8 @@ if [ -f "$statusline_config" ]; then
                 lines)     mod_lines=true ;;
                 mode)      mod_mode=true ;;
             esac
-        done <<< "$modules"
+        done <<< "$modules
+$modules2"
     fi
 fi
 
@@ -351,7 +358,7 @@ if [ "$mod_usage" = true ]; then
             display="${display} ${GRAY}7d:${NC}${s_color}${seven_d}%${NC}"
         fi
 
-        usage_info=" ${GRAY}|${NC} ${GRAY}${plan_name}${NC} ${display}"
+        usage_info="${GRAY}${plan_name}${NC} ${display}"
     }
 
     get_usage_display
@@ -392,7 +399,7 @@ if [ "$mod_rtk" = true ] && command -v rtk >/dev/null 2>&1; then
             | grep -oE '[0-9]+(\.[0-9]+)?%' | head -1
     }
     rtk_val=$(cached_run "$tool_cache_dir/rtk.txt" 60 rtk_producer)
-    [ -n "$rtk_val" ] && rtk_info=" ${GRAY}|${NC} ${CYAN}rtk ${rtk_val}↓${NC}"
+    [ -n "$rtk_val" ] && rtk_info="${CYAN}rtk ${rtk_val}↓${NC}"
 fi
 
 # codegraph: per-project index health, only when a .codegraph index exists (cached 15s)
@@ -415,7 +422,7 @@ if [ "$mod_codegraph" = true ] && command -v codegraph >/dev/null 2>&1 && [ -d "
     if [ -n "$cg_line" ]; then
         cg_nodes=$(printf '%s' "$cg_line" | cut -f1)
         cg_pending=$(printf '%s' "$cg_line" | cut -f2)
-        cg_info=" ${GRAY}|${NC} ${CYAN}⬡ ${cg_nodes}${NC}"
+        cg_info="${CYAN}⬡ ${cg_nodes}${NC}"
         if [ "${cg_pending:-0}" -gt 0 ] 2>/dev/null; then
             cg_info="${cg_info} ${YELLOW}⚠${cg_pending}${NC}"
         fi
@@ -428,9 +435,8 @@ if [ "$mod_lines" = true ]; then
     l_added=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
     l_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
     if { [ "${l_added:-0}" -gt 0 ] 2>/dev/null; } || { [ "${l_removed:-0}" -gt 0 ] 2>/dev/null; }; then
-        lines_info=" ${GRAY}|${NC}"
-        [ "${l_added:-0}" -gt 0 ] 2>/dev/null && lines_info="${lines_info} ${GREEN}+${l_added}${NC}"
-        [ "${l_removed:-0}" -gt 0 ] 2>/dev/null && lines_info="${lines_info} ${RED}-${l_removed}${NC}"
+        [ "${l_added:-0}" -gt 0 ] 2>/dev/null && lines_info="${GREEN}+${l_added}${NC}"
+        [ "${l_removed:-0}" -gt 0 ] 2>/dev/null && lines_info="${lines_info:+$lines_info }${RED}-${l_removed}${NC}"
     fi
 fi
 
@@ -442,7 +448,7 @@ if [ "$mod_mode" = true ]; then
     m_parts=""
     [ "$m_fast" = "true" ] && m_parts="⚡"
     [ -n "$m_effort" ] && m_parts="${m_parts}${m_parts:+ }${m_effort}"
-    [ -n "$m_parts" ] && mode_info=" ${GRAY}|${NC} ${MAGENTA}${m_parts}${NC}"
+    [ -n "$m_parts" ] && mode_info="${MAGENTA}${m_parts}${NC}"
 fi
 
 # --- Git info ---
@@ -461,47 +467,47 @@ if [ "$mod_git" = true ]; then
             added=$(echo "$line_stats" | cut -d' ' -f1)
             removed=$(echo "$line_stats" | cut -d' ' -f2)
 
-            git_info=" ${YELLOW}($branch${NC} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
+            git_info="${YELLOW}($branch${NC} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
             [ "$added" -gt 0 ] && git_info="${git_info} ${GREEN}+${added}${NC}"
             [ "$removed" -gt 0 ] && git_info="${git_info} ${RED}-${removed}${NC}"
             git_info="${git_info} ${YELLOW})${NC}"
         else
-            git_info=" ${YELLOW}($branch)${NC}"
+            git_info="${YELLOW}($branch)${NC}"
         fi
     fi
 fi
 
 # --- Compose output ---
-# Build segments array, then join with separator
-segments=()
+# Each module produced a bare chunk (no leading separator). Route every enabled
+# chunk to line 1 or line 2 depending on whether its module name appears in
+# modules_line2, then join chunks on each line with " | ".
+SEP=" ${GRAY}|${NC} "
+line1=""
+line2=""
 
-[ "$mod_directory" = true ] && segments+=("${BLUE}${dir_name}${NC}")
-[ "$mod_model" = true ]     && segments+=("${CYAN}${model_name}${NC}")
-[ -n "$context_info" ]      && segments+=("$context_info")
+is_line2() { case " $line2_set " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-# Usage gets appended to the last segment (it has its own separator)
-output=""
-for i in "${!segments[@]}"; do
-    if [ "$i" -gt 0 ]; then
-        output="${output} ${GRAY}|${NC} "
+route() {  # $1 = module name, $2 = bare chunk
+    [ -z "$2" ] && return
+    if is_line2 "$1"; then
+        line2="${line2:+$line2$SEP}$2"
+    else
+        line1="${line1:+$line1$SEP}$2"
     fi
-    output="${output}${segments[$i]}"
-done
+}
 
-# Append usage info (already has leading separator)
-output="${output}${usage_info}"
+[ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}"
+[ "$mod_model" = true ]     && route model "${CYAN}${model_name}${NC}"
+route context "$context_info"
+route usage   "$usage_info"
+route rtk     "$rtk_info"
+route mode    "$mode_info"
+route git     "$git_info"
+route lines   "$lines_info"
+route codegraph "$cg_info"
 
-# Append rtk savings, then the reasoning/mode badge (each has a leading separator)
-output="${output}${rtk_info}"
-output="${output}${mode_info}"
-
-# Append git info with separator
-if [ -n "$git_info" ]; then
-    output="${output} ${GRAY}|${NC}${git_info}"
+if [ -n "$line2" ]; then
+    printf '%b\n%b\n' "$line1" "$line2"
+else
+    echo -e "$line1"
 fi
-
-# Append session lines and codegraph index health (each has a leading separator)
-output="${output}${lines_info}"
-output="${output}${cg_info}"
-
-echo -e "$output"

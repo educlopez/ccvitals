@@ -63,6 +63,16 @@ setup() {
     [[ "$output" != *"test-project"* ]]
 }
 
+@test "statusline: modules_line2 splits output across two lines" {
+    echo '{"modules":["model"],"modules_line2":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Two rows: model on line 1, context on line 2
+    [ "${#lines[@]}" -eq 2 ]
+    [[ "${lines[0]}" == *"Opus 4.6"* ]]
+    [[ "${lines[1]}" == *"13%"* ]]
+}
+
 @test "statusline: config with directory only shows directory" {
     echo '{"modules":["directory"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
     run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
