@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-27
+
 ### Added
 
 - **Session lines module** (`lines`) — lines added/removed this session, e.g. `+264 -195`, read from Claude Code's `cost` data
