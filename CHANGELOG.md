@@ -7,11 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-27
+
+### Added
+
+- **RTK module** — global token-savings percentage from `rtk gain` (e.g. `rtk 86.8%↓`); opt-in, hides itself when the `rtk` CLI is absent
+- **CodeGraph module** — per-project index size with a stale marker from `codegraph status` (e.g. `⬡ 11.7k ⚠3`); opt-in, only shown in indexed projects
+- Background-cached command helper so tool modules never block rendering (rtk cached 60s, codegraph 15s per project)
+
+### Changed
+
+- Installer reworked from `curl | bash` (copy) to `git clone` + symlink: `statusline.sh` is symlinked into the Claude config dir, so `git pull` updates the statusline instantly and multiple machines stay in sync through the repo
+- `--all` now selects all seven modules (adds `rtk` and `codegraph`)
+- Uninstaller removes the symlink, including dangling links
+
 ### Fixed
 
+- Parse the quota reset timestamp as UTC on macOS — `date -j -f` was treating the trailing `Z` as local time, making the reset countdown short by the local UTC offset
 - Read OAuth credentials from macOS Keychain for Claude Code 2.x+ (profile-specific service names with SHA256 hash)
 - Fall back to `.credentials.json` for older Claude Code versions and non-macOS platforms
 - Allow empty `subscriptionType` to proceed with API call instead of blocking (only skip explicit `api` type)
+
+### Removed
+
+- Installer `--update` mode (superseded by `git pull`)
 
 ## [1.0.0] - 2026-03-04
 
