@@ -136,18 +136,28 @@ setup() {
     [[ "$output" == *"0%"* ]]
 }
 
-@test "statusline: prefers pre-calculated used_percentage over current_usage" {
-    # used_percentage (47) must win even though raw tokens would compute to a different value
-    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":1000000,"used_percentage":47,"current_usage":{"input_tokens":12000,"cache_creation_input_tokens":10000,"cache_read_input_tokens":450000}}}'
+@test "statusline: promotes to 1M tier when usage exceeds reported window" {
+    # Real-world 1M-context session: 602,881 live tokens but size reported as 200k.
+    # Must compute against 1M (~60%), not saturate at 100%.
+    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"used_percentage":100,"current_usage":{"input_tokens":1,"cache_creation_input_tokens":815,"cache_read_input_tokens":602065}}}'
     echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
     run bash -c "echo '$json' | bash '$STATUSLINE'"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"47%"* ]]
+    [[ "$output" == *"60%"* ]]
 }
 
-@test "statusline: bar never overflows when context exceeds 100%" {
-    # Cumulative-token report from older Claude Code (522k / 200k = 261%)
-    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":12000,"cache_creation_input_tokens":10000,"cache_read_input_tokens":500000}}}'
+@test "statusline: falls back to used_percentage when current_usage is null" {
+    # Right after /compact current_usage is null; use the pre-calculated percentage.
+    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"used_percentage":35,"current_usage":null}}'
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"35%"* ]]
+}
+
+@test "statusline: bar never overflows even past the 1M tier" {
+    # Cumulative-token report from older Claude Code (1.5M / 1M = 150%) must clamp.
+    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":1500000}}}'
     echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
     run bash -c "echo '$json' | bash '$STATUSLINE'"
     [ "$status" -eq 0 ]

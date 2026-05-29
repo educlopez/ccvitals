@@ -97,18 +97,28 @@ if [ "$mod_context" = true ]; then
         + (.context_window.current_usage.cache_creation_input_tokens // 0)
         + (.context_window.current_usage.cache_read_input_tokens // 0)')
 
-    # Prefer Claude Code's pre-calculated used_percentage when available — it reflects the
-    # live context window and matches /context. Fall back to computing it ourselves for
-    # older clients. NOTE: Claude Code before v2.1.132 reported these token counts as
-    # cumulative session totals, so the percentage grows unbounded (e.g. 261%); the fix
-    # there is to update Claude Code. We clamp the bar below so it never overflows.
-    used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
-    if [ -n "$used_pct" ]; then
-        context_percent=$(printf '%.0f' "$used_pct")
-    elif [ "$current_tokens" -gt 0 ] 2>/dev/null; then
+    # Detect the extended (1M) context tier. Claude Code can keep reporting
+    # context_window_size as the 200k base even when the session actually runs on the 1M
+    # window, so live usage may exceed it. Against 200k those percentages saturate at 100%
+    # (Claude Code's own used_percentage also caps at 100), which pins the bar full. When
+    # live tokens exceed the reported size, promote the effective window to 1M.
+    if [ "${current_tokens:-0}" -gt "$context_size" ] 2>/dev/null; then
+        context_size=1000000
+    fi
+
+    # Compute from live tokens (input-only, same formula as Claude Code's used_percentage,
+    # and correct for both the 200k and 1M tiers). Fall back to the pre-calculated
+    # used_percentage only when current_usage is unavailable — e.g. right after /compact,
+    # before the next API call repopulates it.
+    if [ "${current_tokens:-0}" -gt 0 ] 2>/dev/null; then
         context_percent=$((current_tokens * 100 / context_size))
     else
-        context_percent=0
+        used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+        if [ -n "$used_pct" ]; then
+            context_percent=$(printf '%.0f' "$used_pct")
+        else
+            context_percent=0
+        fi
     fi
 
     # Build context progress bar (15 chars wide). Clamp fill so an over-budget or
@@ -122,12 +132,11 @@ if [ "$mod_context" = true ]; then
     for ((i=0; i<filled; i++)); do bar+="█"; done
     for ((i=0; i<empty; i++)); do bar+="░"; done
 
-    # Context-pressure alert: large absolute context is expensive even when cached.
-    # Flag at 150k tokens, or whenever Claude Code reports it exceeds 200k.
-    exceeds_200k=$(echo "$input" | jq -r '.exceeds_200k_tokens // false')
+    # Context-pressure alert based on how full the window is — consistent across the
+    # 200k and 1M tiers (an absolute token threshold would false-alarm on 1M sessions).
     ctx_color="$NC"
     ctx_warn=""
-    if [ "$exceeds_200k" = "true" ] || { [ "${current_tokens:-0}" -ge 150000 ] 2>/dev/null; }; then
+    if [ "${context_percent:-0}" -ge 90 ] 2>/dev/null; then
         ctx_color="$RED"
         ctx_warn=" ${RED}⚠${NC}"
     fi
