@@ -81,18 +81,34 @@ dir_name=$(basename "$current_dir")
 context_info=""
 if [ "$mod_context" = true ]; then
     context_size=$(echo "$input" | jq -r '.context_window.context_window_size // 200000')
-    current_usage=$(echo "$input" | jq '.context_window.current_usage')
 
-    if [ "$current_usage" != "null" ]; then
-        current_tokens=$(echo "$current_usage" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens')
+    # Token totals from the most recent API response (input-only, matching Claude Code's
+    # own used_percentage accounting). Null-safe so a missing current_usage yields 0.
+    current_tokens=$(echo "$input" | jq -r '
+        (.context_window.current_usage.input_tokens // 0)
+        + (.context_window.current_usage.cache_creation_input_tokens // 0)
+        + (.context_window.current_usage.cache_read_input_tokens // 0)')
+
+    # Prefer Claude Code's pre-calculated used_percentage when available — it reflects the
+    # live context window and matches /context. Fall back to computing it ourselves for
+    # older clients. NOTE: Claude Code before v2.1.132 reported these token counts as
+    # cumulative session totals, so the percentage grows unbounded (e.g. 261%); the fix
+    # there is to update Claude Code. We clamp the bar below so it never overflows.
+    used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+    if [ -n "$used_pct" ]; then
+        context_percent=$(printf '%.0f' "$used_pct")
+    elif [ "$current_tokens" -gt 0 ] 2>/dev/null; then
         context_percent=$((current_tokens * 100 / context_size))
     else
         context_percent=0
     fi
 
-    # Build context progress bar (15 chars wide)
+    # Build context progress bar (15 chars wide). Clamp fill so an over-budget or
+    # cumulative-token report never spills past the bar width.
     bar_width=15
     filled=$((context_percent * bar_width / 100))
+    [ "$filled" -gt "$bar_width" ] && filled=$bar_width
+    [ "$filled" -lt 0 ] && filled=0
     empty=$((bar_width - filled))
     bar=""
     for ((i=0; i<filled; i++)); do bar+="█"; done

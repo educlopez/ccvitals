@@ -136,6 +136,29 @@ setup() {
     [[ "$output" == *"0%"* ]]
 }
 
+@test "statusline: prefers pre-calculated used_percentage over current_usage" {
+    # used_percentage (47) must win even though raw tokens would compute to a different value
+    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":1000000,"used_percentage":47,"current_usage":{"input_tokens":12000,"cache_creation_input_tokens":10000,"cache_read_input_tokens":450000}}}'
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"47%"* ]]
+}
+
+@test "statusline: bar never overflows when context exceeds 100%" {
+    # Cumulative-token report from older Claude Code (522k / 200k = 261%)
+    local json='{"model":{"display_name":"Sonnet 4.6"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":12000,"cache_creation_input_tokens":10000,"cache_read_input_tokens":500000}}}'
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    local filled_count
+    filled_count=$(echo "$clean" | grep -o '█' | wc -l | xargs)
+    # Clamped to the 15-char bar width — must not spill past it
+    [ "$filled_count" -eq 15 ]
+}
+
 # ─── Directory module ───
 
 @test "statusline: directory shows basename of workspace dir" {
