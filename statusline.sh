@@ -13,6 +13,14 @@ config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 config_dir="${config_dir/#\~/$HOME}"
 statusline_config="$config_dir/.statusline-config.json"
 
+# --- Optional debug capture ---
+# Touch "$config_dir/.statusline-debug" to dump the raw JSON Claude Code sends on
+# stdin to "$config_dir/statusline-debug.json" (overwritten each render). Useful for
+# diagnosing context/usage values. Remove the flag file to disable.
+if [ -f "$config_dir/.statusline-debug" ]; then
+    printf '%s\n' "$input" > "$config_dir/statusline-debug.json" 2>/dev/null
+fi
+
 # Default: core modules enabled; tool modules (rtk, codegraph) are opt-in
 mod_directory=true
 mod_model=true
