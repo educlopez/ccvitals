@@ -200,6 +200,75 @@ if [ -f "$statusline_config" ]; then
     unset _theme _c_red _c_green _c_blue _c_yellow _c_cyan _c_gray _c_magenta
 fi
 
+# --- Powerline rendering ---
+# Read powerline flag and optional separator glyph from config.
+# All powerline variables default to empty so the non-powerline path is
+# completely unaffected when the feature is absent/disabled.
+PL_ON=false
+PL_SEP=$'\xee\x82\xb0'  # default Nerd Font glyph U+E0B0 (UTF-8: ee 82 b0)
+PL_BG_A=''         # background escape for even-indexed segments
+PL_BG_B=''         # background escape for odd-indexed segments
+PL_FG_A=''         # fg version of BG_A (for the separator glyph itself)
+PL_FG_B=''         # fg version of BG_B
+
+if [ -f "$statusline_config" ]; then
+    _pl=$(jq -r '.powerline // false' "$statusline_config" 2>/dev/null)
+    if [ "$_pl" = "true" ]; then
+        PL_ON=true
+        # Optional separator override
+        _pl_sep=$(jq -r '.powerline_separator // empty' "$statusline_config" 2>/dev/null)
+        [ -n "$_pl_sep" ] && PL_SEP="$_pl_sep"
+        # Determine per-theme background shades
+        _pl_theme=$(jq -r '.theme // "default"' "$statusline_config" 2>/dev/null)
+        case "$_pl_theme" in
+            pastel)
+                PL_BG_A='\033[48;2;58;61;69m'
+                PL_FG_A='\033[38;2;58;61;69m'
+                PL_BG_B='\033[48;2;74;77;87m'
+                PL_FG_B='\033[38;2;74;77;87m'
+                ;;
+            tokyo-night)
+                PL_BG_A='\033[48;2;31;35;53m'
+                PL_FG_A='\033[38;2;31;35;53m'
+                PL_BG_B='\033[48;2;41;46;66m'
+                PL_FG_B='\033[38;2;41;46;66m'
+                ;;
+            catppuccin)
+                PL_BG_A='\033[48;2;49;50;68m'
+                PL_FG_A='\033[38;2;49;50;68m'
+                PL_BG_B='\033[48;2;69;71;90m'
+                PL_FG_B='\033[38;2;69;71;90m'
+                ;;
+            dracula)
+                PL_BG_A='\033[48;2;68;71;90m'
+                PL_FG_A='\033[38;2;68;71;90m'
+                PL_BG_B='\033[48;2;54;57;73m'
+                PL_FG_B='\033[38;2;54;57;73m'
+                ;;
+            nord)
+                PL_BG_A='\033[48;2;59;66;82m'
+                PL_FG_A='\033[38;2;59;66;82m'
+                PL_BG_B='\033[48;2;67;76;94m'
+                PL_FG_B='\033[38;2;67;76;94m'
+                ;;
+            mono|default|'')
+                PL_BG_A='\033[48;5;236m'
+                PL_FG_A='\033[38;5;236m'
+                PL_BG_B='\033[48;5;238m'
+                PL_FG_B='\033[38;5;238m'
+                ;;
+            *)
+                # custom or unknown: fall back to 256-color grays
+                PL_BG_A='\033[48;5;236m'
+                PL_FG_A='\033[38;5;236m'
+                PL_BG_B='\033[48;5;238m'
+                PL_FG_B='\033[38;5;238m'
+                ;;
+        esac
+    fi
+    unset _pl _pl_sep _pl_theme
+fi
+
 # Get directory name (basename)
 dir_name=$(basename "$current_dir")
 
@@ -1049,18 +1118,38 @@ fi
 # Each module produced a bare chunk (no leading separator). Route every enabled
 # chunk to line 1 or line 2 depending on whether its module name appears in
 # modules_line2, then join chunks on each line with " | ".
+#
+# When powerline mode is on, chunks are collected into arrays and rendered with
+# background-shaded segments and U+E0B0 (or custom) separators.  The non-powerline
+# path is untouched — it still uses the " | " join so output is byte-identical.
 SEP=" ${GRAY}|${NC} "
 line1=""
 line2=""
+
+# Powerline segment arrays (parallel: names1/chunks1 for line 1, same for line 2).
+# Using space-delimited strings instead of arrays for bash 3.2 compatibility.
+_pl_count1=0
+_pl_count2=0
+# Store chunks in indexed variables _pl_chunk1_N and _pl_chunk2_N (bash 3.2 safe).
 
 is_line2() { case " $line2_set " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 route() {  # $1 = module name, $2 = bare chunk
     [ -z "$2" ] && return
-    if is_line2 "$1"; then
-        line2="${line2:+$line2$SEP}$2"
+    if [ "$PL_ON" = true ]; then
+        if is_line2 "$1"; then
+            eval "_pl_chunk2_${_pl_count2}=\$2"
+            _pl_count2=$(( _pl_count2 + 1 ))
+        else
+            eval "_pl_chunk1_${_pl_count1}=\$2"
+            _pl_count1=$(( _pl_count1 + 1 ))
+        fi
     else
-        line1="${line1:+$line1$SEP}$2"
+        if is_line2 "$1"; then
+            line2="${line2:+$line2$SEP}$2"
+        else
+            line1="${line1:+$line1$SEP}$2"
+        fi
     fi
 }
 
@@ -1086,7 +1175,62 @@ route tools    "$tools_info"
 route agents   "$agents_info"
 route todos    "$todos_info"
 
-if [ -n "$line2" ]; then
+# --- Powerline render helper ---
+# build_pl_line <count_var_prefix> <line_number>
+# Iterates the stored chunks, alternates BG_A/BG_B, injects separator glyphs,
+# and post-processes each chunk so internal \033[0m resets don't kill the bg.
+build_pl_line() {
+    local count="$1"
+    local linenum="$2"
+    local result=""
+    local i=0
+    local seg_bg seg_fg prev_bg_fg chunk seg_bg_esc
+    prev_bg_fg=""
+    while [ "$i" -lt "$count" ]; do
+        # Alternate backgrounds: even index → A, odd → B
+        if [ $(( i % 2 )) -eq 0 ]; then
+            seg_bg="$PL_BG_A"
+            seg_fg="$PL_FG_A"
+        else
+            seg_bg="$PL_BG_B"
+            seg_fg="$PL_FG_B"
+        fi
+        # Retrieve chunk from indexed variable (bash 3.2 safe, no assoc arrays)
+        eval "chunk=\$_pl_chunk${linenum}_${i}"
+        # Post-process: replace every internal \033[0m (literal text, not ESC byte)
+        # with \033[0m + seg_bg so the background survives internal color resets.
+        # Chunks store literal backslash-escapes that printf %b expands later,
+        # so we match the literal 8-char sequence \033[0m with sed.
+        seg_bg_esc="${seg_bg//\\/\\\\}"   # escape backslashes for sed replacement
+        seg_bg_esc="${seg_bg_esc//&/\\&}" # escape & (sed re-inserts the match)
+        chunk=$(printf '%s' "$chunk" | sed "s/\\\\033[[]0m/\\\\033[0m${seg_bg_esc}/g")
+        # Build separator glyph between segments (fg = prev bg color, bg = this bg)
+        if [ "$i" -eq 0 ]; then
+            # First segment — no preceding separator
+            result="${result}${seg_bg} ${chunk} "
+        else
+            # Separator: fg = previous segment's bg color, bg = current segment's bg
+            result="${result}${NC}${prev_bg_fg}${seg_bg}${PL_SEP} ${chunk} "
+        fi
+        prev_bg_fg="$seg_fg"
+        i=$(( i + 1 ))
+    done
+    # Final separator: fg = last bg, terminal default bg (no background code)
+    if [ "$count" -gt 0 ]; then
+        result="${result}${NC}${prev_bg_fg}${PL_SEP}${NC}"
+    fi
+    printf '%s' "$result"
+}
+
+if [ "$PL_ON" = true ]; then
+    line1=$(build_pl_line "$_pl_count1" 1)
+    if [ "$_pl_count2" -gt 0 ]; then
+        line2=$(build_pl_line "$_pl_count2" 2)
+        printf '%b\n%b\n' "$line1" "$line2"
+    else
+        printf '%b\n' "$line1"
+    fi
+elif [ -n "$line2" ]; then
     printf '%b\n%b\n' "$line1" "$line2"
 else
     echo -e "$line1"

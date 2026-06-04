@@ -1498,6 +1498,114 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+# ─── Powerline mode ───
+
+@test "powerline: off by default — output byte-identical to no-config render" {
+    # Run once with no powerline key, once with "powerline":false — both must match
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_default="$output"
+
+    echo '{"powerline":false}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$out_default" ]
+}
+
+@test "powerline: off by default — second run with explicit false still identical" {
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_default="$output"
+
+    echo '{"powerline":false,"theme":"default"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$out_default" ]
+}
+
+@test "powerline: on — output contains U+E0B0 separator glyph" {
+    echo '{"modules":["directory","model","context"],"powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # U+E0B0 in UTF-8 is bytes ee 82 b0; use $'\x..' so the literal is portable
+    local glyph=$'\xee\x82\xb0'
+    [[ "$output" == *"${glyph}"* ]]
+}
+
+@test "powerline: on — output contains 48;2 truecolor background codes (default theme uses 48;5)" {
+    # Use tokyo-night which uses truecolor bgs
+    echo '{"modules":["directory","model"],"theme":"tokyo-night","powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"48;2;"* ]]
+}
+
+@test "powerline: on with default theme — output contains 48;5 256-color background codes" {
+    echo '{"modules":["directory","model"],"powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"48;5;"* ]]
+}
+
+@test "powerline: custom separator used when powerline_separator set" {
+    echo '{"modules":["directory","model"],"powerline":true,"powerline_separator":"|>"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"|>"* ]]
+    # Default glyph (U+E0B0, bytes ee 82 b0) should NOT appear
+    local glyph=$'\xee\x82\xb0'
+    [[ "$output" != *"${glyph}"* ]]
+}
+
+@test "powerline: no U+E0B0 when powerline is off" {
+    echo '{"modules":["directory","model","context"],"powerline":false}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local glyph=$'\xee\x82\xb0'
+    [[ "$output" != *"${glyph}"* ]]
+}
+
+@test "powerline: two-line layout gets separators on both lines" {
+    echo '{"modules":["directory","model"],"modules_line2":["context"],"theme":"tokyo-night","powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Two lines
+    [ "${#lines[@]}" -eq 2 ]
+    # Both lines must contain the separator glyph (U+E0B0, bytes ee 82 b0)
+    local glyph=$'\xee\x82\xb0'
+    [[ "${lines[0]}" == *"${glyph}"* ]]
+    [[ "${lines[1]}" == *"${glyph}"* ]]
+}
+
+@test "powerline: internal NC reset does not kill background (bg re-injected after 0m)" {
+    # context_info contains \033[0m resets internally; in powerline mode
+    # the bg code must re-appear after every 0m inside a segment.
+    echo '{"modules":["context"],"theme":"tokyo-night","powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # After any ESC[0m there must be a bg code (48;2;) before the next visible char.
+    # We check that at least one bg code re-appears after a reset.
+    [[ "$output" == *$'\033[0m'*"48;2;"* ]] || [[ "$output" == *$'\033[0m'*"48;5;"* ]]
+}
+
+@test "powerline: all themes produce bg codes without crashing" {
+    for theme in pastel tokyo-night catppuccin dracula nord mono default; do
+        echo "{\"modules\":[\"directory\",\"model\"],\"theme\":\"${theme}\",\"powerline\":true}" \
+            > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+        run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+        [ "$status" -eq 0 ]
+        # Must contain some background code
+        [[ "$output" == *"48;"* ]]
+    done
+}
+
 # ─── Install: additional coverage ───
 
 # NOTE: These tests are in test/install.bats but we add them here as a cross-check

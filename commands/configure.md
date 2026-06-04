@@ -121,6 +121,29 @@ Use AskUserQuestion to ask:
 
 Save as `CONTEXT_DISPLAY`. If the user presses Enter, keep the existing value (omit the key if not already set).
 
+### 5c. Ask about powerline mode (optional)
+
+Use AskUserQuestion to ask:
+
+> Do you want powerline mode? (y/n, default: n)
+>
+> Powerline mode renders each module as a shaded segment separated by the Nerd Font
+> arrow glyph () instead of " | ":
+> ```
+>  test-project  Opus 4.6  ████░░░░░ 13% 
+> ```
+>
+> **Requires a Nerd Font** in your terminal (e.g. JetBrainsMono Nerd Font, FiraCode Nerd Font).
+> Without one the separator shows as a box or question mark.
+>
+> If you don't have a Nerd Font, answer **n** or enter a custom separator when prompted.
+
+If **yes**, ask:
+
+> Custom separator glyph? (press Enter to use the default  glyph, or type an ASCII fallback like `>` or `|`)
+
+Save as `POWERLINE=true` and `POWERLINE_SEP` (empty string = use default glyph).
+
 ### 6. Write `~/.claude/.statusline-config.json`
 
 Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`. Preserve the existing `modules` and `modules_line2` keys; add or update the `theme` key (and optional `colors` key for custom). If `CONTEXT_DISPLAY` was chosen and is not `"percent"`, also set `"context_display"` in the config.
@@ -162,6 +185,8 @@ The exact rule (matching install.sh behavior):
 - `modules_line2` = the line 2 subset (only included if non-empty)
 - `theme` = chosen theme name string (omit or `"default"` for legacy colors)
 - `colors` = only present when theme is `"custom"`
+- `powerline` = `true` only when the user opted in; omit entirely when not enabled
+- `powerline_separator` = only present when a custom separator was given
 
 Build and write using Bash. Read the current config first and merge with jq to preserve all existing keys:
 
@@ -211,5 +236,6 @@ Tell the user:
 > Line 1 modules: [list]
 > Line 2 modules: [list, or "none (single-line layout)"]
 > Theme: [chosen theme name]
+> Powerline: [enabled / disabled]
 >
 > Changes take effect at next session start (restart Claude Code).

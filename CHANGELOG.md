@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-06-04
+
+### Added
+
+- **Powerline mode** — set `"powerline": true` in `.statusline-config.json` to render each module as a background-shaded segment separated by the Nerd Font U+E0B0 (``) glyph; segments alternate between two per-theme background shades; a final trailing arrow resets to the terminal default background
+- Per-theme powerline background pairs: truecolor (`48;2;R;G;B`) for pastel, tokyo-night, catppuccin, dracula, and nord; 256-color fallback (`48;5;236`/`48;5;238`) for mono and default
+- `"powerline_separator"` config key to override the glyph with any string (ASCII fallback for terminals without a Nerd Font)
+- Internal `\033[0m` resets inside segments are automatically followed by the segment's background code so colors persist throughout each segment
+- Two-line layout: each line restarts the alternating segment index and gets its own trailing separator
+- No behavior change when `"powerline"` is absent or `false` — output is byte-identical to the previous render path
+- `commands/configure.md`: new step 5c asking about powerline mode with Nerd Font note and custom separator prompt
+- `README.md`: new "Powerline mode" section after Themes with config example, Nerd Font requirement, and custom separator usage
+
 ## [1.7.0] - 2026-06-04
 
 ### Added
@@ -124,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/educlopez/ccvitals/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/educlopez/ccvitals/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/educlopez/ccvitals/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/educlopez/ccvitals/compare/v1.4.0...v1.5.0

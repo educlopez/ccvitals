@@ -216,6 +216,36 @@ Switch theme by running `/ccvitals:configure` (plugin install) or editing the co
 }
 ```
 
+## Powerline mode
+
+Set `"powerline": true` in `~/.claude/.statusline-config.json` to render each module as a shaded segment separated by the Nerd Font arrow glyph (U+E0B0, ``) instead of ` | `:
+
+```json
+{
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "tokyo-night",
+  "powerline": true
+}
+```
+
+Segments alternate between two background shades drawn from the active theme. Each inter-segment boundary gets a `` glyph whose foreground color matches the previous segment's background, creating a seamless chevron effect. A final trailing arrow resets to the terminal default background.
+
+> **Nerd Font required** — the `` glyph renders correctly only when your terminal uses a [Nerd Font](https://www.nerdfonts.com/) (e.g. JetBrainsMono Nerd Font, FiraCode Nerd Font, MesloLGS NF). Without one the separator appears as a box or question mark.
+
+### Custom separator
+
+Override the separator glyph with any string via `"powerline_separator"`:
+
+```json
+{
+  "modules": ["directory", "model", "context"],
+  "powerline": true,
+  "powerline_separator": "▶"
+}
+```
+
+Use a plain ASCII fallback (e.g. `"|"` or `">"`) if you don't have a Nerd Font installed.
+
 ### Custom colors
 
 Set `"theme": "custom"` and supply a `"colors"` object with any of the seven color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`). Missing keys fall back to the default palette. Values must be `#RRGGBB` hex strings:

@@ -1,7 +1,7 @@
 {
   "name": "ccvitals",
   "displayName": "ccvitals",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "The prettiest statusline for Claude Code — pure bash, never blocks your prompt. Usage quota, context window, git status & more.",
   "author": { "name": "Eduardo Calvo", "url": "https://github.com/educlopez" },
   "homepage": "https://github.com/educlopez/ccvitals",
