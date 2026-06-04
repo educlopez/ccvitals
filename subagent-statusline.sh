@@ -96,11 +96,11 @@ if [ -f "$statusline_config" ]; then
 fi
 
 # Materialize color strings with real ESC bytes for embedding in content
-NC_E=$(printf "$NC")
-RED_E=$(printf "$RED")
-GREEN_E=$(printf "$GREEN")
-CYAN_E=$(printf "$CYAN")
-GRAY_E=$(printf "$GRAY")
+NC_E=$(printf '%b' "$NC")
+RED_E=$(printf '%b' "$RED")
+GREEN_E=$(printf '%b' "$GREEN")
+CYAN_E=$(printf '%b' "$CYAN")
+GRAY_E=$(printf '%b' "$GRAY")
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
