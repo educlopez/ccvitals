@@ -1327,6 +1327,177 @@ setup() {
     [ "$pipe_count" -eq 2 ]
 }
 
+# ─── Tools module ───
+
+@test "statusline: tools shows pending tool name" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # One tool_use with no matching tool_result
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⚒ Bash"* ]]
+}
+
+@test "statusline: tools hidden when tool has matching result" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_001"}]},"timestamp":"2026-01-01T00:00:01Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: tools shows overflow count when multiple pending" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}},{"type":"tool_use","id":"toolu_002","name":"Read","input":{}},{"type":"tool_use","id":"toolu_003","name":"Edit","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⚒ Bash +2"* ]]
+}
+
+@test "statusline: tools hidden when transcript_path absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Agents module ───
+
+@test "statusline: agents shows pending Task subagent_type" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a01","name":"Task","input":{"subagent_type":"code-reviewer","description":"Review the PR"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["agents"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"◉ code-reviewer"* ]]
+}
+
+@test "statusline: agents shows count when multiple pending" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a01","name":"Task","input":{"subagent_type":"agent-one","description":"desc1"}},{"type":"tool_use","id":"toolu_a02","name":"Task","input":{"subagent_type":"agent-two","description":"desc2"}},{"type":"tool_use","id":"toolu_a03","name":"Task","input":{"subagent_type":"agent-three","description":"desc3"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["agents"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"◉ 3 agents"* ]]
+}
+
+@test "statusline: agents hidden when no Task pending" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["agents"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Todos module ───
+
+@test "statusline: todos shows progress from last TodoWrite" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    local todos='[{"content":"task1","status":"completed","activeForm":false},{"content":"task2","status":"completed","activeForm":false},{"content":"task3","status":"pending","activeForm":false},{"content":"task4","status":"pending","activeForm":false},{"content":"task5","status":"pending","activeForm":false}]'
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_t01","name":"TodoWrite","input":{"todos":%s}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' "$todos" > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["todos"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"☑ 2/5"* ]]
+}
+
+@test "statusline: todos shows green when all completed" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    local todos='[{"content":"task1","status":"completed","activeForm":false},{"content":"task2","status":"completed","activeForm":false},{"content":"task3","status":"completed","activeForm":false}]'
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_t02","name":"TodoWrite","input":{"todos":%s}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' "$todos" > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["todos"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    # Should contain green ANSI code and the fraction
+    [[ "$output" == *"☑ 3/3"* ]]
+    # Green color sequence present
+    [[ "$output" == *$'\033[0;32m'* ]] || [[ "$output" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: todos hidden when no TodoWrite in transcript" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["todos"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: todos hidden when transcript_path absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["todos"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: malformed last transcript line does not crash" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Valid line followed by a partial/malformed line
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    printf '{"incomplete":' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools","agents","todos"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    # Must not crash
+    [ "$status" -eq 0 ]
+}
+
 # ─── Install: additional coverage ───
 
 # NOTE: These tests are in test/install.bats but we add them here as a cross-check

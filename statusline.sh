@@ -40,6 +40,9 @@ mod_pr=false
 mod_weekly=false
 mod_pace=false
 mod_cache=false
+mod_tools=false
+mod_agents=false
+mod_todos=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
@@ -80,6 +83,9 @@ if [ -f "$statusline_config" ]; then
                 weekly)    mod_weekly=true ;;
                 pace)      mod_pace=true ;;
                 cache)     mod_cache=true ;;
+                tools)     mod_tools=true ;;
+                agents)    mod_agents=true ;;
+                todos)     mod_todos=true ;;
             esac
         done <<< "$modules
 $modules2"
@@ -978,6 +984,67 @@ if [ "$mod_cache" = true ]; then
     fi
 fi
 
+# --- Transcript-based live modules (tools, agents, todos) ---
+# ONE tail + ONE jq invocation; gated on at least one module being enabled.
+tools_info=""
+agents_info=""
+todos_info=""
+if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true ]; then
+    _transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+    if [ -n "$_transcript" ] && [ -f "$_transcript" ]; then
+        # -R + line-wise fromjson: a truncated trailing line (transcript mid-write)
+        # is dropped instead of aborting the whole parse like slurped -s would.
+        _tsv=$(tail -n 300 "$_transcript" 2>/dev/null | jq -Rrs '
+          [split("\n")[] | select(length > 0) | try fromjson catch empty] as $lines
+          | ([$lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")]) as $uses
+          | ([$lines[] | select(.type=="user") | .message.content[]? | select(.type=="tool_result") | .tool_use_id]) as $done
+          | ($uses | map(select(.id as $i | $done | index($i) | not))) as $pending
+          | ($pending | map(select(.name != "Task"))) as $ptools
+          | ($pending | map(select(.name == "Task"))) as $pagents
+          | ([$lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="TodoWrite")] | last) as $todo
+          | [
+              ($ptools | length | tostring), ($ptools | first | .name // ""),
+              ($pagents | length | tostring), ($pagents | first | (.input.subagent_type // .input.description // "") | .[0:20]),
+              (if $todo then ($todo.input.todos | map(select(.status=="completed")) | length | tostring) else "-1" end),
+              (if $todo then ($todo.input.todos | length | tostring) else "0" end)
+            ] | join("\u001f")' 2>/dev/null)
+        if [ -n "$_tsv" ]; then
+            IFS=$'\037' read -r _pt_count _pt_first _pa_count _pa_first _td_done _td_total <<< "$_tsv"
+            # tools module
+            if [ "$mod_tools" = true ]; then
+                if [ "${_pt_count:-0}" -ge 1 ] 2>/dev/null; then
+                    if [ "${_pt_count:-0}" -eq 1 ]; then
+                        tools_info="${CYAN}⚒ ${_pt_first}${NC}"
+                    else
+                        _pt_others=$(( _pt_count - 1 ))
+                        tools_info="${CYAN}⚒ ${_pt_first} +${_pt_others}${NC}"
+                    fi
+                fi
+            fi
+            # agents module
+            if [ "$mod_agents" = true ]; then
+                if [ "${_pa_count:-0}" -ge 1 ] 2>/dev/null; then
+                    if [ "${_pa_count:-0}" -eq 1 ]; then
+                        agents_info="${MAGENTA}◉ ${_pa_first}${NC}"
+                    else
+                        agents_info="${MAGENTA}◉ ${_pa_count} agents${NC}"
+                    fi
+                fi
+            fi
+            # todos module
+            if [ "$mod_todos" = true ]; then
+                if [ "${_td_done:-0}" -ge 0 ] 2>/dev/null && [ "${_td_total:-0}" -gt 0 ] 2>/dev/null; then
+                    if [ "${_td_done}" -eq "${_td_total}" ] 2>/dev/null; then
+                        todos_info="${GREEN}☑ ${_td_done}/${_td_total}${NC}"
+                    else
+                        todos_info="${CYAN}☑ ${_td_done}/${_td_total}${NC}"
+                    fi
+                fi
+            fi
+        fi
+    fi
+fi
+
 # --- Compose output ---
 # Each module produced a bare chunk (no leading separator). Route every enabled
 # chunk to line 1 or line 2 depending on whether its module name appears in
@@ -1015,6 +1082,9 @@ route pr       "$pr_info"
 route weekly   "$weekly_info"
 route pace     "$pace_info"
 route cache    "$cache_info"
+route tools    "$tools_info"
+route agents   "$agents_info"
+route todos    "$todos_info"
 
 if [ -n "$line2" ]; then
     printf '%b\n%b\n' "$line1" "$line2"

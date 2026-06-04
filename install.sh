@@ -44,6 +44,9 @@ MOD_DESC_15="PR status      PR #123 approved"
 MOD_DESC_16="Weekly quota   7d: ████░░░░░░ 38% 4d2h"
 MOD_DESC_17="Pace           pace +12%"
 MOD_DESC_18="Cache TTL      cache 4m12s"
+MOD_DESC_19="Tools in-flight  ⚒ Bash +2"
+MOD_DESC_20="Agents running   ◉ code-reviewer"
+MOD_DESC_21="Todos            ☑ 3/7"
 
 # ─── Phase 1.1: Color setup with NO_COLOR / TTY detection ───
 
@@ -120,6 +123,7 @@ get_mod_desc() {
         10) echo "$MOD_DESC_10" ;; 11) echo "$MOD_DESC_11" ;; 12) echo "$MOD_DESC_12" ;;
         13) echo "$MOD_DESC_13" ;; 14) echo "$MOD_DESC_14" ;; 15) echo "$MOD_DESC_15" ;;
         16) echo "$MOD_DESC_16" ;; 17) echo "$MOD_DESC_17" ;; 18) echo "$MOD_DESC_18" ;;
+        19) echo "$MOD_DESC_19" ;; 20) echo "$MOD_DESC_20" ;; 21) echo "$MOD_DESC_21" ;;
     esac
 }
 
@@ -131,6 +135,7 @@ get_mod_name() {
         10) echo "cost"      ;; 11) echo "duration" ;; 12) echo "speed"   ;;
         13) echo "vim"       ;; 14) echo "agent"    ;; 15) echo "pr"      ;;
         16) echo "weekly"    ;; 17) echo "pace"     ;; 18) echo "cache"   ;;
+        19) echo "tools"     ;; 20) echo "agents"   ;; 21) echo "todos"   ;;
     esac
 }
 
@@ -157,7 +162,7 @@ Options:
   --modules=LIST     Install specific modules (comma-separated, no spaces)
                      Available: directory, model, context, usage, git, rtk,
                      codegraph, lines, mode, cost, duration, speed, vim,
-                     agent, pr, weekly, pace, cache
+                     agent, pr, weekly, pace, cache, tools, agents, todos
   --line2=LIST       Render these modules on a second row (comma-separated).
                      They are placed in modules_line2; the rest stay on line 1.
 
@@ -187,6 +192,9 @@ Modules:
   weekly       Show 7-day quota bar with reset countdown
   pace         Show burn-rate vs quota window (pace +12%)
   cache        Show prompt-cache freshness countdown
+  tools        Show tools currently in flight (⚒ Bash +2)
+  agents       Show active sub-agents (◉ code-reviewer)
+  todos        Show latest TodoWrite progress (☑ 3/7)
 
 Update:
   cd $REPO_DIR && git pull
@@ -209,7 +217,7 @@ for arg in "$@"; do
     case "$arg" in
         --help|-h) show_help ;;
         --force)   FORCE=true ;;
-        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache" ;;
+        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache,tools,agents,todos" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --line2=*) LINE2_ARG="${arg#--line2=}" ;;
         --version) echo "ccvitals v$STATUSLINE_VERSION"; exit 0 ;;
@@ -311,7 +319,7 @@ LINE2_MODULES=""
 
 if [ "$SKIP_MENU" = true ] && [ -n "$MODULES_ARG" ]; then
     # From --modules or --all flag — drop unknown module names with a warning
-    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache "
+    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache tools agents todos "
     VALIDATED=""
     OLD_IFS="$IFS"; IFS=','
     for m in $MODULES_ARG; do
@@ -336,7 +344,7 @@ elif [ "$SKIP_MENU" = false ]; then
         en_1=1; en_2=1; en_3=1; en_4=1; en_5=1
         en_6=0; en_7=0; en_8=0; en_9=0
         en_10=0; en_11=0; en_12=0; en_13=0; en_14=0; en_15=0; en_16=0
-        en_17=0; en_18=0
+        en_17=0; en_18=0; en_19=0; en_20=0; en_21=0
 
         get_en() {
             case "$1" in
@@ -346,6 +354,7 @@ elif [ "$SKIP_MENU" = false ]; then
                 10) echo "$en_10" ;; 11) echo "$en_11" ;; 12) echo "$en_12" ;;
                 13) echo "$en_13" ;; 14) echo "$en_14" ;; 15) echo "$en_15" ;;
                 16) echo "$en_16" ;; 17) echo "$en_17" ;; 18) echo "$en_18" ;;
+                19) echo "$en_19" ;; 20) echo "$en_20" ;; 21) echo "$en_21" ;;
             esac
         }
 
@@ -369,6 +378,9 @@ elif [ "$SKIP_MENU" = false ]; then
                 16) if [ "$en_16" -eq 1 ]; then en_16=0; else en_16=1; fi ;;
                 17) if [ "$en_17" -eq 1 ]; then en_17=0; else en_17=1; fi ;;
                 18) if [ "$en_18" -eq 1 ]; then en_18=0; else en_18=1; fi ;;
+                19) if [ "$en_19" -eq 1 ]; then en_19=0; else en_19=1; fi ;;
+                20) if [ "$en_20" -eq 1 ]; then en_20=0; else en_20=1; fi ;;
+                21) if [ "$en_21" -eq 1 ]; then en_21=0; else en_21=1; fi ;;
             esac
         }
 
@@ -376,7 +388,7 @@ elif [ "$SKIP_MENU" = false ]; then
             echo ""
             echo -e "${BOLD}ccvitals — Choose your modules:${NC}"
             echo ""
-            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21; do
                 local desc
                 desc=$(get_mod_desc "$i")
                 if [ "$(get_en "$i")" -eq 1 ]; then
@@ -390,7 +402,7 @@ elif [ "$SKIP_MENU" = false ]; then
         }
 
         # ─── Phase 1.4: ANSI escapes instead of tput ───
-        MENU_LINES=23
+        MENU_LINES=26
         draw_menu
 
         while true; do
@@ -407,14 +419,14 @@ elif [ "$SKIP_MENU" = false ]; then
                 a|A)
                     en_1=1; en_2=1; en_3=1; en_4=1; en_5=1; en_6=1; en_7=1; en_8=1; en_9=1
                     en_10=1; en_11=1; en_12=1; en_13=1; en_14=1; en_15=1; en_16=1
-                    en_17=1; en_18=1
+                    en_17=1; en_18=1; en_19=1; en_20=1; en_21=1
                     # Redraw using ANSI escapes (Phase 1.4)
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
                     done
                     draw_menu
                     ;;
-                [1-9]|1[0-8])
+                [1-9]|1[0-9]|2[01])
                     toggle "$choice"
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
@@ -422,14 +434,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     draw_menu
                     ;;
                 *)
-                    echo -e "  ${YELLOW}Enter 1-18, 'a' for all, or Enter to confirm${NC}"
+                    echo -e "  ${YELLOW}Enter 1-21, 'a' for all, or Enter to confirm${NC}"
                     ;;
             esac
         done
 
         # Build selected modules string
         result=""
-        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18; do
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21; do
             if [ "$(get_en "$i")" -eq 1 ]; then
                 name=$(get_mod_name "$i")
                 if [ -n "$result" ]; then
@@ -448,7 +460,7 @@ elif [ "$SKIP_MENU" = false ]; then
             l2_result=""
             for tok in $l2_choice; do
                 case "$tok" in
-                    [1-9]|1[0-8])
+                    [1-9]|1[0-9]|2[01])
                         if [ "$(get_en "$tok")" -eq 1 ]; then
                             n=$(get_mod_name "$tok")
                             if [ -n "$l2_result" ]; then l2_result="$l2_result,$n"; else l2_result="$n"; fi

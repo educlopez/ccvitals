@@ -148,12 +148,16 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `weekly` | 7-day quota bar with reset countdown — e.g. `7d: ████░░░░░░ 38% 4d2h` |
 | `pace` | Burn-rate vs 5h quota window — e.g. `pace +12%` (GREEN = under budget, YELLOW = slightly over, RED = burning fast); hidden when rate_limits absent |
 | `cache` | Prompt-cache freshness countdown — e.g. `cache 4m12s` or `cache cold` (reads `transcript_path` from stdin; hidden when absent) |
+| `tools` | Tools currently in flight — e.g. `⚒ Bash` (one pending) or `⚒ Bash +2` (first + overflow count); hidden when none pending; reads the last 300 lines of the transcript (never full file) |
+| `agents` | Active sub-agents — e.g. `◉ code-reviewer` (one) or `◉ 3 agents` (several); hidden when none; reads transcript (tail-bounded) |
+| `todos` | Latest TodoWrite progress — e.g. `☑ 3/7`; GREEN when all done, CYAN otherwise; hidden when no TodoWrite found; reads transcript (tail-bounded) |
 
-> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, and `cache` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, and `todos` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
-> each silently hides itself when its CLI isn't installed. All other new modules
-> read straight from the data Claude Code passes in, at zero extra cost.
+> each silently hides itself when its CLI isn't installed. `tools`, `agents`, and
+> `todos` share one `tail -n 300` + one `jq` invocation of the transcript per render,
+> keeping the cost bounded regardless of transcript size.
 
 ## Features
 

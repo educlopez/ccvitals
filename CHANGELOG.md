@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-06-04
+
+### Added
+
+- **Tools module** (`tools`, opt-in) — shows tool_use entries currently in flight (no matching tool_result yet): `⚒ Bash` (one pending) or `⚒ Bash +2` (first tool + overflow count); Task tool excluded (covered by `agents`); hidden when none pending
+- **Agents module** (`agents`, opt-in) — shows Task tool_use entries without a matching result: `◉ code-reviewer` (one, using subagent_type or first 20 chars of description) or `◉ 3 agents` (multiple); hidden when none active
+- **Todos module** (`todos`, opt-in) — shows progress from the last TodoWrite in the transcript window: `☑ 3/7`; GREEN when all completed, CYAN otherwise; hidden when no TodoWrite found or todos array empty
+- All three transcript modules share one `tail -n 300` + one `jq` invocation per render; gated as a block when all three are disabled; transcript absent/missing → all hidden; malformed trailing lines handled gracefully (jq nonzero exit → all hidden)
+- `install.sh` menu extended to 21 entries (19=tools, 20=agents, 21=todos); `--all` now includes all 21 modules; `KNOWN_MODULES` validation updated
+- `commands/setup.md` and `commands/configure.md`: tools/agents/todos added to optional module lists; Everything preset updated to 21 modules
+
 ## [1.6.0] - 2026-06-04
 
 ### Added
@@ -113,7 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/educlopez/ccvitals/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/educlopez/ccvitals/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/educlopez/ccvitals/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/educlopez/ccvitals/compare/v1.3.0...v1.4.0

@@ -55,6 +55,9 @@ Use AskUserQuestion to ask:
 > - **weekly** — 7-day quota bar with reset countdown
 > - **pace** — burn-rate vs quota window (e.g. `pace +12%`)
 > - **cache** — prompt-cache freshness countdown (e.g. `cache 4m12s`)
+> - **tools** — tools currently in flight (e.g. `⚒ Bash +2`); reads transcript (tail-bounded)
+> - **agents** — active sub-agents (e.g. `◉ code-reviewer`); reads transcript (tail-bounded)
+> - **todos** — latest TodoWrite progress (e.g. `☑ 3/7`); reads transcript (tail-bounded)
 >
 > List all modules you want enabled, separated by spaces.
 > Example: `directory model context usage git lines mode`
