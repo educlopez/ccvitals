@@ -112,6 +112,15 @@ NC='\033[0m' # No Color
 if [ -f "$statusline_config" ]; then
     _theme=$(jq -r '.theme // empty' "$statusline_config" 2>/dev/null)
     case "$_theme" in
+        pastel)
+            RED=$(hex_to_ansi '#ee7975')
+            GREEN=$(hex_to_ansi '#89f78e')
+            BLUE=$(hex_to_ansi '#ba9af3')
+            YELLOW=$(hex_to_ansi '#f4fa9e')
+            CYAN=$(hex_to_ansi '#a5e8fa')
+            GRAY=$(hex_to_ansi '#a1a1a1')
+            MAGENTA=$(hex_to_ansi '#ef86c6')
+            ;;
         tokyo-night)
             RED=$(hex_to_ansi '#f7768e')
             GREEN=$(hex_to_ansi '#9ece6a')

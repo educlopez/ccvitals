@@ -66,8 +66,8 @@ render '{"modules":["directory","model","context","usage"]}' "$pressure_json"
 echo ""
 sleep 3
 
-label "❯ Themes — tokyo-night, catppuccin, dracula, nord"
-for theme in tokyo-night catppuccin dracula nord; do
+label "❯ Themes — pastel, tokyo-night, catppuccin, dracula, nord"
+for theme in pastel tokyo-night catppuccin dracula nord; do
     render "{\"modules\":[\"directory\",\"model\",\"context\",\"usage\",\"git\"],\"theme\":\"$theme\"}" "$base_json"
 done
 sleep 4

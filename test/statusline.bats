@@ -487,6 +487,15 @@ setup() {
     [ "$out_no_theme" = "$out_default_theme" ]
 }
 
+@test "statusline: pastel theme outputs its lavender truecolor for directory" {
+    echo '{"modules":["directory"],"theme":"pastel"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # BLUE = #ba9af3 → 186;154;243
+    [[ "$output" == *$'\033[38;2;186;154;243m'* ]]
+}
+
 @test "statusline: tokyo-night theme outputs truecolor escape sequences" {
     echo '{"modules":["model"],"theme":"tokyo-night"}' \
         > "$CLAUDE_CONFIG_DIR/.statusline-config.json"

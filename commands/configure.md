@@ -88,16 +88,17 @@ Use AskUserQuestion to ask:
 > Current: [show current "theme" value from config, or "default" if absent]
 >
 > **1) default** — classic terminal 16-color palette (backward compatible)
-> **2) tokyo-night** — blue/purple night palette (Tokyo Night)
-> **3) catppuccin** — soft pastel palette (Catppuccin Mocha)
-> **4) dracula** — high-contrast dark palette (Dracula)
-> **5) nord** — arctic, cool-toned palette (Nord)
-> **6) mono** — bold/white only, no color (minimal setups)
-> **7) custom** — specify your own hex colors
+> **2) pastel** — soft lavender/cyan palette
+> **3) tokyo-night** — blue/purple night palette (Tokyo Night)
+> **4) catppuccin** — soft pastel palette (Catppuccin Mocha)
+> **5) dracula** — high-contrast dark palette (Dracula)
+> **6) nord** — arctic, cool-toned palette (Nord)
+> **7) mono** — bold/white only, no color (minimal setups)
+> **8) custom** — specify your own hex colors
 >
-> Enter 1–7.
+> Enter 1–8.
 
-If they choose **7 (custom)**, use AskUserQuestion to ask for each of the 7 color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`) as hex values (`#RRGGBB`). Any key left blank keeps the default value.
+If they choose **8 (custom)**, use AskUserQuestion to ask for each of the 7 color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`) as hex values (`#RRGGBB`). Any key left blank keeps the default value.
 
 Save the theme name as `CHOSEN_THEME` (e.g. `"tokyo-night"`). For custom, also save a `colors` object with the non-blank entries.
 

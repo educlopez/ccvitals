@@ -5,7 +5,7 @@ Output assets/demo.gif
 
 Set FontSize 16
 Set Width 1100
-Set Height 460
+Set Height 480
 Set Padding 24
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 40ms

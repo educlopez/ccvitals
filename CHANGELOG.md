@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Pastel theme** (`pastel`) — soft lavender/cyan palette
+- Per-theme static preview images in the README (`assets/themes/*.png`), regenerable with `assets/generate-theme-previews.sh`
+
 ## [1.5.0] - 2026-06-04
 
 ### Added

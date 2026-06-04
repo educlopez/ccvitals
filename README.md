@@ -176,16 +176,30 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 
 ## Themes
 
-ccvitals ships with five built-in color presets plus a custom mode. Set the `"theme"` key in `~/.claude/.statusline-config.json`:
+ccvitals ships with six built-in color presets plus a custom mode. Set the `"theme"` key in `~/.claude/.statusline-config.json`:
 
-| Theme | Description |
-|-------|-------------|
-| `default` | Classic 16-color ANSI palette (backward compatible, used when key is absent) |
-| `tokyo-night` | Blue/purple night palette — Tokyo Night |
-| `catppuccin` | Soft pastel palette — Catppuccin Mocha |
-| `dracula` | High-contrast dark palette — Dracula |
-| `nord` | Arctic, cool-toned palette — Nord |
-| `mono` | Bold/white only — no color, for minimal setups |
+#### `default` — classic 16-color ANSI (adapts to your terminal's palette; used when the key is absent)
+![default theme](assets/themes/default.png)
+
+#### `pastel` — soft lavender/cyan palette
+![pastel theme](assets/themes/pastel.png)
+
+#### `tokyo-night` — blue/purple night palette
+![tokyo-night theme](assets/themes/tokyo-night.png)
+
+#### `catppuccin` — Catppuccin Mocha
+![catppuccin theme](assets/themes/catppuccin.png)
+
+#### `dracula` — high-contrast Dracula
+![dracula theme](assets/themes/dracula.png)
+
+#### `nord` — arctic, cool-toned Nord
+![nord theme](assets/themes/nord.png)
+
+#### `mono` — bold/white only, no color
+![mono theme](assets/themes/mono.png)
+
+> **Why does `default` look different on my machine?** The `default` theme emits classic 16-color ANSI codes, so **your terminal's palette decides** the final colors — it blends in with whatever theme your terminal uses. The named presets use fixed truecolor values and look identical in every terminal.
 
 Switch theme by running `/ccvitals:configure` (plugin install) or editing the config directly:
 

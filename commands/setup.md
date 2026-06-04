@@ -76,13 +76,14 @@ Use AskUserQuestion to ask:
 > Which color theme would you like?
 >
 > **1) default** — classic terminal 16-color palette (backward compatible)
-> **2) tokyo-night** — blue/purple night palette (Tokyo Night)
-> **3) catppuccin** — soft pastel palette (Catppuccin Mocha)
-> **4) dracula** — high-contrast dark palette (Dracula)
-> **5) nord** — arctic, cool-toned palette (Nord)
-> **6) mono** — bold/white only, no color (minimal setups)
+> **2) pastel** — soft lavender/cyan palette
+> **3) tokyo-night** — blue/purple night palette (Tokyo Night)
+> **4) catppuccin** — soft pastel palette (Catppuccin Mocha)
+> **5) dracula** — high-contrast dark palette (Dracula)
+> **6) nord** — arctic, cool-toned palette (Nord)
+> **7) mono** — bold/white only, no color (minimal setups)
 >
-> Enter 1–6 (or press Enter for default).
+> Enter 1–7 (or press Enter for default).
 
 Save the chosen theme name as `CHOSEN_THEME`. If the user presses Enter or enters 1, set `CHOSEN_THEME="default"`.
 
