@@ -1623,6 +1623,275 @@ setup() {
     done
 }
 
+# ─── Pace ETA mode ───
+
+@test "statusline: pace eta mode shows ok (GREEN) when quota outlasts reset" {
+    # used=50%, elapsed=9000s of 18000s window (9000s remaining in window)
+    # rate_milli = 50*1000/9000 = 5 → exhaust_s = 50*1000/5 = 10000s
+    # eta_epoch = now+10000; resets = now+9000 → eta > resets → "⌛ ok"
+    local now
+    now=$(date +%s)
+    local resets=$(( now + 9000 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":50,\"resets_at\":${resets}}}}"
+    echo '{"modules":["pace"],"pace_display":"eta"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⌛ ok"* ]]
+}
+
+@test "statusline: pace eta mode shows time when quota dies before reset" {
+    # used=80%, elapsed=16000s of 18000s → rate ~0.005%/s, exhaust in ~4000s
+    # resets_at is far away (17000s), so quota dies first
+    local now
+    now=$(date +%s)
+    local resets=$(( now + 17000 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":80,\"resets_at\":${resets}}}}"
+    echo '{"modules":["pace"],"pace_display":"eta"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should show ⌛ ~HH:MM (time in the future)
+    [[ "$clean" == *"⌛ ~"* ]]
+}
+
+@test "statusline: pace eta mode hidden when pace hides (no rate_limits)" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["pace"],"pace_display":"eta"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: pace delta mode still works when pace_display is delta" {
+    local now
+    now=$(date +%s)
+    local resets=$(( now + 9000 ))  # 9000s remaining → 9000s elapsed
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":40,\"resets_at\":${resets}}}}"
+    echo '{"modules":["pace"],"pace_display":"delta"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"pace"* ]]
+}
+
+# ─── Daily budget module ───
+
+@test "statusline: daily sums two sessions" {
+    local session1="daily-sess-aaa-$$"
+    local session2="daily-sess-bbb-$$"
+    local today
+    today=$(date +%Y-%m-%d)
+    # Pre-populate the day file with session1
+    local d_dir="$CLAUDE_CONFIG_DIR/.ccvitals-daily"
+    mkdir -p "$d_dir"
+    local safe1
+    safe1=$(printf '%s' "$session1" | tr -dc 'a-zA-Z0-9_-' | cut -c1-60)
+    printf '{"%s":1.50}' "$safe1" > "$d_dir/${today}.json"
+    # Now render with session2 having cost=2.00
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session2}\",\"cost\":{\"total_cost_usd\":2.00}}"
+    echo '{"modules":["daily"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Total should be 1.50 + 2.00 = 3.50
+    [[ "$clean" == *"Σ \$3.50"* ]]
+}
+
+@test "statusline: daily shows budget colors when daily_budget configured" {
+    local session="daily-budget-$$"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session}\",\"cost\":{\"total_cost_usd\":9.50}}"
+    echo '{"modules":["daily"],"daily_budget":10}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # 9.50/10 = 95% → MAGENTA range (≥80%, <100%)
+    [[ "$clean" == *"Σ"* ]]
+    [[ "$clean" == *"/\$10"* ]]
+}
+
+@test "statusline: daily cleans up old day files" {
+    local d_dir="$CLAUDE_CONFIG_DIR/.ccvitals-daily"
+    mkdir -p "$d_dir"
+    # Create a file and set its mtime to 8 days ago
+    local old_file="$d_dir/2020-01-01.json"
+    printf '{"old-session":0.01}' > "$old_file"
+    # Set mtime to 8 days ago (touch -t MMDDHHMI.SS or use find behavior)
+    touch -t 202001010000 "$old_file" 2>/dev/null || true
+    local session="daily-cleanup-$$"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session}\",\"cost\":{\"total_cost_usd\":0.01}}"
+    echo '{"modules":["daily"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Old file should be deleted (mtime > 7 days)
+    [ ! -f "$old_file" ]
+}
+
+@test "statusline: daily hidden when no session_id" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_cost_usd":1.00}}'
+    echo '{"modules":["daily"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Weekly split module ───
+
+@test "statusline: weekly_split renders O:/S: from OAuth cache" {
+    # Create a mock usage cache with per-model data
+    local cache_dir="$CLAUDE_CONFIG_DIR/.usage-cache"
+    mkdir -p "$cache_dir"
+    jq -n '{data:{seven_day:{utilization:20,resets_at:"2026-06-10T11:00:00Z"},seven_day_opus:{utilization:42,resets_at:"2026-06-10T11:00:00Z"},seven_day_sonnet:{utilization:18,resets_at:"2026-06-10T11:00:00Z"}},timestamp:1780000000,plan:"team",error:false}' \
+        > "$cache_dir/usage.json"
+    local now
+    now=$(date +%s)
+    local resets=$(( now + 518400 ))  # 6 days away
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"seven_day\":{\"used_percentage\":20,\"resets_at\":${resets}}}}"
+    echo '{"modules":["weekly"],"weekly_split":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"O:42%"* ]]
+    [[ "$clean" == *"S:18%"* ]]
+}
+
+@test "statusline: weekly_split falls back to bar when per-model keys absent" {
+    local cache_dir="$CLAUDE_CONFIG_DIR/.usage-cache"
+    mkdir -p "$cache_dir"
+    # Cache file without seven_day_opus/seven_day_sonnet
+    jq -n '{data:{seven_day:{utilization:20,resets_at:"2026-06-10T11:00:00Z"},seven_day_opus:null,seven_day_sonnet:null},timestamp:1780000000,plan:"team",error:false}' \
+        > "$cache_dir/usage.json"
+    local now
+    now=$(date +%s)
+    local resets=$(( now + 518400 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"seven_day\":{\"used_percentage\":20,\"resets_at\":${resets}}}}"
+    echo '{"modules":["weekly"],"weekly_split":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should fall back to bar + percentage
+    [[ "$clean" == *"7d:"* ]]
+    [[ "$clean" == *"20%"* ]]
+    # Should NOT show O:/S:
+    [[ "$clean" != *"O:"* ]]
+}
+
+# ─── Compactions module ───
+
+@test "statusline: compactions counts compact_boundary in transcript" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"system","subtype":"compact_boundary","timestamp":"2026-01-01T00:00:00Z"}\n' >> "$tmp_transcript"
+    printf '{"type":"assistant","message":{"content":[]},"timestamp":"2026-01-01T00:00:01Z"}\n' >> "$tmp_transcript"
+    printf '{"type":"system","subtype":"compact_boundary","timestamp":"2026-01-01T00:00:02Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["compactions"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"↯ 2"* ]]
+}
+
+@test "statusline: compactions hidden when count is 0" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["compactions"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: compactions hidden when transcript absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["compactions"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Session tokens module ───
+
+@test "statusline: tokens accumulates incrementally across two renders" {
+    local session="tokens-incr-$$"
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # First render: 2 assistant entries
+    printf '{"type":"assistant","message":{"usage":{"input_tokens":1000,"output_tokens":200,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    printf '{"type":"assistant","message":{"usage":{"input_tokens":500,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"timestamp":"2026-01-01T00:00:01Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session}\",\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tokens"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean1
+    clean1=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # in=1500, out=300
+    [[ "$clean1" == *"⇅"* ]]
+    [[ "$clean1" == *"1.5k"* ]]
+    # Second render: add one more assistant entry
+    printf '{"type":"assistant","message":{"usage":{"input_tokens":800,"output_tokens":50,"cache_creation_input_tokens":200,"cache_read_input_tokens":0}},"timestamp":"2026-01-01T00:00:02Z"}\n' >> "$tmp_transcript"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean2
+    clean2=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # in=1500+1000=2500, out=300+50=350
+    [[ "$clean2" == *"2.5k"* ]]
+}
+
+@test "statusline: tokens resets cache on transcript shrink" {
+    local session="tokens-shrink-$$"
+    local safe_sess
+    safe_sess=$(printf '%s' "$session" | tr -dc 'a-zA-Z0-9_-' | cut -c1-40)
+    # Pre-seed cache claiming 50 processed lines and large totals
+    local tok_dir="$CLAUDE_CONFIG_DIR/.ccvitals-tokens"
+    mkdir -p "$tok_dir"
+    printf '50\t99000\t5000\n' > "$tok_dir/${safe_sess}.txt"
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Transcript has only 1 line (shrunk)
+    printf '{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session}\",\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tokens"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Cache was reset; only the 1 new line processed: in=100, out=10
+    [[ "$clean" == *"100/"* ]]
+}
+
+@test "statusline: tokens hidden when no transcript_path" {
+    local session="tokens-nopath-$$"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"session_id\":\"${session}\"}"
+    echo '{"modules":["tokens"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
 # ─── Install: additional coverage ───
 
 # NOTE: These tests are in test/install.bats but we add them here as a cross-check

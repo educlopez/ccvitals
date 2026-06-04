@@ -21,6 +21,7 @@ config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 config_dir="${config_dir/#\~/$HOME}"
 settings_file="$config_dir/settings.json"
 script_file="$config_dir/statusline-command.sh"
+subagent_script_file="$config_dir/subagent-statusline.sh"
 statusline_config="$config_dir/.statusline-config.json"
 cache_dir="$config_dir/.usage-cache"
 
@@ -34,6 +35,14 @@ else
     warn "Statusline script not found at $script_file (already removed?)"
 fi
 
+# --- Remove subagent statusline script ---
+if [ -e "$subagent_script_file" ] || [ -L "$subagent_script_file" ]; then
+    rm "$subagent_script_file"
+    ok "Removed $subagent_script_file"
+else
+    info "Subagent script not found at $subagent_script_file (already removed?)"
+fi
+
 # --- Remove module config ---
 if [ -f "$statusline_config" ]; then
     rm "$statusline_config"
@@ -42,12 +51,13 @@ else
     info "No module config found"
 fi
 
-# --- Remove statusLine key from settings.json ---
+# --- Remove statusLine and subagentStatusLine keys from settings.json ---
 if [ -f "$settings_file" ]; then
-    if jq -e '.statusLine' "$settings_file" >/dev/null 2>&1; then
+    has_sl=$(jq -r 'if has("statusLine") or has("subagentStatusLine") then "yes" else "no" end' "$settings_file" 2>/dev/null)
+    if [ "$has_sl" = "yes" ]; then
         cp "$settings_file" "$settings_file.backup"
-        jq 'del(.statusLine)' "$settings_file.backup" > "$settings_file"
-        ok "Removed statusLine from settings.json"
+        jq 'del(.statusLine) | del(.subagentStatusLine)' "$settings_file.backup" > "$settings_file"
+        ok "Removed statusLine and subagentStatusLine from settings.json"
     else
         info "No statusLine key found in settings.json (already clean)"
     fi

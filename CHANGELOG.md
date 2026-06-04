@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-04
+
+### Added
+
+- **Subagent rows** (`subagent-statusline.sh`) — per-sub-agent row renderer for the Claude Code agent panel. Replaces the default `name · description · tokens` row with a theme-aware line: status icon (`◐` CYAN running / `✓` GREEN completed / `✗` RED stopped / `·` GRAY unknown), label/name, description truncated to fit terminal width, k/M token count, and cwd basename. Reads `columns` and `tasks[]` from the `subagentStatusLine` stdin contract; emits one compact JSON line per task. Handles unknown statuses and all edge cases (empty tasks, malformed stdin) gracefully with zero output and exit 0. Theme-aware: reads `~/.claude/.statusline-config.json` and applies the same color presets as the main statusline.
+- `install.sh`: symlinks `subagent-statusline.sh` into the config dir and writes the `subagentStatusLine` key to `settings.json` alongside `statusLine` (both `--force` and fresh installs)
+- `uninstall.sh`: removes the `subagent-statusline.sh` symlink and deletes the `subagentStatusLine` key from `settings.json`
+- `commands/setup.md`: Step 7 now writes both `statusLine` and `subagentStatusLine` keys
+- `README.md`: new "Subagent rows" section (after Powerline) describing the row format and how to disable
+- `test/subagent.bats`: 19 new tests covering JSON contract, icon/color per status, description truncation, k/M token formatting, label-over-name preference, cwd basename, theme presets, and all edge cases
+
+- **Quota forecast** — `pace` module gains a new `pace_display: "eta"` config key. ETA mode computes the burn rate from elapsed time and used percentage, then projects when the 5h quota will exhaust. If exhaustion is before the reset: `⌛ ~17:40` (RED if within 1h, YELLOW otherwise). If quota will outlast the reset: `⌛ ok` (GREEN). The existing `"delta"` mode is the default and unchanged.
+- **Daily budget module** (`daily`, opt-in) — cross-session spend for the current day. Stores per-session costs in `~/.claude/.ccvitals-daily/YYYY-MM-DD.json`, sums all sessions, and displays `Σ $4.20`. Optional `daily_budget` config key (number, USD) adds a budget denominator and colors: GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%. Day-files older than 7 days are pruned automatically. Hidden when no session_id or no cost in stdin.
+- **Weekly per-model split** — `weekly` module gains `weekly_split: true` config key. When the OAuth usage cache has `seven_day_opus`/`seven_day_sonnet` utilization, renders `7d O:42% S:18%` (colored per standard thresholds) instead of the single progress bar. Falls back to the bar when per-model keys are absent or the cache is missing.
+- **Compactions module** (`compactions`, opt-in) — counts `{"type":"system","subtype":"compact_boundary"}` entries in the transcript using a fast `grep -c` on the full file. Displays `↯ 2` (GRAY). Hidden when count is 0 or transcript is absent.
+- **Session tokens module** (`tokens`, opt-in) — cumulative session input/output token counts using an incremental cache keyed by session_id (`~/.claude/.ccvitals-tokens/<id>.txt`). On each render only new transcript lines are processed; totals accumulate. Displays `⇅ 1.2M/45k` (in/out, k/M formatted). Resets on transcript shrink (compact). Hidden when transcript is absent.
+- `install.sh`: menu extended to 24 entries (22=daily, 23=compactions, 24=tokens); `--all` now includes all 24 modules; `KNOWN_MODULES` updated
+- `commands/setup.md` and `commands/configure.md`: new modules added to optional lists; `pace_display`, `daily_budget`, `weekly_split` documented
+
 ## [1.8.1] - 2026-06-04
 
 ### Fixed
@@ -144,7 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/educlopez/ccvitals/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/educlopez/ccvitals/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/educlopez/ccvitals/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/educlopez/ccvitals/compare/v1.6.0...v1.7.0

@@ -151,13 +151,18 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `tools` | Tools currently in flight — e.g. `⚒ Bash` (one pending) or `⚒ Bash +2` (first + overflow count); hidden when none pending; reads the last 300 lines of the transcript (never full file) |
 | `agents` | Active sub-agents — e.g. `◉ code-reviewer` (one) or `◉ 3 agents` (several); hidden when none; reads transcript (tail-bounded) |
 | `todos` | Latest TodoWrite progress — e.g. `☑ 3/7`; GREEN when all done, CYAN otherwise; hidden when no TodoWrite found; reads transcript (tail-bounded) |
+| `daily` | Cross-session daily spend — e.g. `Σ $4.20`; with optional `daily_budget` config: `Σ $4.20/$10` colored GREEN/YELLOW/MAGENTA/RED by budget %age; prunes day-files older than 7 days |
+| `compactions` | Count of `/compact` events in the transcript — e.g. `↯ 2`; hidden when 0; uses `grep -c` on the full file (fast, no jq) |
+| `tokens` | Cumulative session input/output tokens — e.g. `⇅ 1.2M/45k`; incremental cache keyed by session; resets on compact; hidden when transcript absent |
 
-> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, and `todos` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, `todos`, `daily`, `compactions`, and `tokens` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
 > each silently hides itself when its CLI isn't installed. `tools`, `agents`, and
 > `todos` share one `tail -n 300` + one `jq` invocation of the transcript per render,
-> keeping the cost bounded regardless of transcript size.
+> keeping the cost bounded regardless of transcript size. `compactions` uses `grep -c`
+> on the full transcript (fast, O(n) line scan). `tokens` processes only new lines
+> since the last render (incremental cache, negligible per-render cost).
 
 ## Features
 
@@ -234,6 +239,33 @@ Segments alternate between two background shades drawn from the active theme. Ea
 
 > **Nerd Font required** — the `` glyph renders correctly only when your terminal uses a [Nerd Font](https://www.nerdfonts.com/) (e.g. JetBrainsMono Nerd Font, FiraCode Nerd Font, MesloLGS NF). Without one the separator appears as a box or question mark.
 
+## Subagent rows
+
+When Claude Code spawns sub-agents (e.g. during `/sdd-apply`, multi-agent workflows, or background tasks), it shows an agent panel below the prompt. ccvitals replaces the default `name · description · tokens` row for each sub-agent with a richer, theme-aware row:
+
+```
+◐ code-reviewer  Reviewing the auth module for security issues  1.2k  myproject
+✓ formatter  Formatting complete  5.2M  other
+```
+
+Each row shows:
+- **Status icon** — `◐` CYAN (running), `✓` GREEN (completed), `✗` RED (stopped/failed), `·` GRAY (unknown)
+- **Label or name** of the sub-agent
+- **Description** — truncated so the whole row fits within the available terminal width
+- **Token count** — `1.2k` / `5.2M` format; hidden when zero
+- **Project folder** — basename of the sub-agent's working directory
+
+This is enabled automatically when you install ccvitals via `./install.sh` or `/ccvitals:setup`. The rows respect your active theme.
+
+### Disable subagent rows
+
+To keep Claude Code's default sub-agent panel, remove the `subagentStatusLine` key from `~/.claude/settings.json`:
+
+```bash
+jq 'del(.subagentStatusLine)' ~/.claude/settings.json > ~/.claude/settings.json.tmp \
+  && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
+```
+
 ### Custom separator
 
 Override the separator glyph with any string via `"powerline_separator"`:
@@ -269,6 +301,38 @@ Set `"theme": "custom"` and supply a `"colors"` object with any of the seven col
 ```
 
 Truecolor terminals (iTerm2, Kitty, WezTerm, most modern Linux terminals) display the full RGB palette. The `default` and `mono` presets use the classic 16-color ANSI codes and work on every terminal.
+
+## Module config keys
+
+Some modules accept additional config keys in `.statusline-config.json`:
+
+### `pace_display` — quota forecast mode (pace module)
+
+```json
+{ "pace_display": "eta" }
+```
+
+| Value | Display | Description |
+|-------|---------|-------------|
+| `"delta"` (default) | `pace +12%` | How far ahead/behind the expected burn rate |
+| `"eta"` | `⌛ ~17:40` / `⌛ ok` | Estimated exhaustion time — RED if within 1h, YELLOW otherwise, GREEN if quota outlasts the reset |
+
+### `daily_budget` — daily spend budget (daily module)
+
+```json
+{ "daily_budget": 10 }
+```
+
+Optional USD budget for the `daily` module. When set, displays `Σ $4.20/$10` with color:
+GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%.
+
+### `weekly_split` — per-model weekly breakdown (weekly module)
+
+```json
+{ "weekly_split": true }
+```
+
+When `true` and the OAuth cache contains `seven_day_opus`/`seven_day_sonnet` utilization, displays `7d O:42% S:18%` instead of the single progress bar. Falls back to the bar when per-model data is unavailable (note: requires the OAuth fetch path to have run at least once).
 
 ## Requirements
 

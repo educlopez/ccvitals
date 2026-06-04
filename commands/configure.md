@@ -58,6 +58,9 @@ Use AskUserQuestion to ask:
 > - **tools** — tools currently in flight (e.g. `⚒ Bash +2`); reads transcript (tail-bounded)
 > - **agents** — active sub-agents (e.g. `◉ code-reviewer`); reads transcript (tail-bounded)
 > - **todos** — latest TodoWrite progress (e.g. `☑ 3/7`); reads transcript (tail-bounded)
+> - **daily** — cross-session daily spend (e.g. `Σ $4.20`); optional `daily_budget` for coloring
+> - **compactions** — compact_boundary count (e.g. `↯ 2`); reads full transcript via grep
+> - **tokens** — cumulative session input/output tokens (e.g. `⇅ 1.2M/45k`); incremental cache
 >
 > List all modules you want enabled, separated by spaces.
 > Example: `directory model context usage git lines mode`
@@ -120,6 +123,42 @@ Use AskUserQuestion to ask:
 > Enter `percent`, `tokens`, or `both` (or press Enter to keep current).
 
 Save as `CONTEXT_DISPLAY`. If the user presses Enter, keep the existing value (omit the key if not already set).
+
+### 5b-i. Ask about pace display mode (optional, only when pace is enabled)
+
+Use AskUserQuestion to ask:
+
+> How would you like the pace module to display? (leave blank for default)
+>
+> - **delta** (default) — `pace +12%` (how far ahead/behind expected burn)
+> - **eta** — `⌛ ~17:40` / `⌛ ok` (estimated exhaustion time or safe indicator)
+>
+> Enter `delta` or `eta` (or press Enter to keep current).
+
+Save as `PACE_DISPLAY`. Only write to config if not blank.
+
+### 5b-ii. Ask about daily budget (optional, only when daily is enabled)
+
+Use AskUserQuestion to ask:
+
+> Do you want to set a daily spend budget? (e.g. `10` for $10/day, or press Enter to skip)
+>
+> When set, the daily module shows `Σ $4.20/$10` with color coding:
+> GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%.
+
+Save as `DAILY_BUDGET`. Only write to config if not blank and is a positive number.
+
+### 5b-iii. Ask about weekly split (optional, only when weekly is enabled)
+
+Use AskUserQuestion to ask:
+
+> Do you want per-model weekly split? (y/n, default: n)
+>
+> When enabled and the OAuth cache has per-model data, `weekly` shows:
+> `7d O:42% S:18%` instead of the single bar.
+> Falls back to the bar when per-model data is unavailable.
+
+Save as `WEEKLY_SPLIT=true` if yes.
 
 ### 5c. Ask about powerline mode (optional)
 

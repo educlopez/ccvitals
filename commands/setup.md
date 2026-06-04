@@ -36,7 +36,7 @@ Use AskUserQuestion to ask:
 > Which module preset would you like?
 >
 > **1) Essential** (recommended) — directory, model, context, usage, git
-> **2) Everything** — all 21 modules (adds: rtk, codegraph, lines, mode, cost, duration, speed, vim, agent, pr, weekly, pace, cache, tools, agents, todos)
+> **2) Everything** — all 24 modules (adds: rtk, codegraph, lines, mode, cost, duration, speed, vim, agent, pr, weekly, pace, cache, tools, agents, todos, daily, compactions, tokens)
 > **3) Custom** — start with Essential, then choose which extras to add
 >
 > Enter 1, 2, or 3.
@@ -62,6 +62,9 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 > - **tools** — tools currently in flight (e.g. `⚒ Bash +2`); reads transcript (tail-bounded)
 > - **agents** — active sub-agents (e.g. `◉ code-reviewer`); reads transcript (tail-bounded)
 > - **todos** — latest TodoWrite progress (e.g. `☑ 3/7`); reads transcript (tail-bounded)
+> - **daily** — cross-session daily spend (e.g. `Σ $4.20`); optional `daily_budget` key
+> - **compactions** — compact_boundary count (e.g. `↯ 2`)
+> - **tokens** — cumulative session input/output tokens (e.g. `⇅ 1.2M/45k`); incremental cache
 >
 > List the names separated by spaces, or press Enter to skip all.
 
@@ -69,7 +72,7 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 
 Based on the preset:
 - **Essential**: modules = `["directory", "model", "context", "usage", "git"]`
-- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly", "pace", "cache", "tools", "agents", "todos"]`
+- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly", "pace", "cache", "tools", "agents", "todos", "daily", "compactions", "tokens"]`
 - **Custom**: Essential set plus whatever extras the user selected
 
 There is no `modules_line2` in the setup flow (single-line layout). Use `/ccvitals:configure` to set up a two-line layout later.
@@ -118,23 +121,25 @@ jq -n --argjson mods '["directory","model","context","usage","git"]' \
 
 ### 7. Update `~/.claude/settings.json`
 
-Set the `statusLine` key to:
+Set both the `statusLine` and `subagentStatusLine` keys:
 
 ```json
 {"type": "command", "command": "bash <PLUGIN_PATH>/statusline.sh"}
+{"type": "command", "command": "bash <PLUGIN_PATH>/subagent-statusline.sh"}
 ```
 
 Where `<PLUGIN_PATH>` is the resolved absolute path from Step 1.
 
 If `settings.json` already exists:
 - Read it first
-- Check if `statusLine` is already set
-- If already set, overwrite it (the user ran setup intentionally)
+- If `statusLine` is already set, overwrite it (the user ran setup intentionally)
 - Preserve all other keys using jq:
 
 ```bash
 jq --argjson sl '{"type":"command","command":"bash /absolute/path/statusline.sh"}' \
-  '.statusLine = $sl' "$CONFIG_DIR/settings.json" > "$CONFIG_DIR/settings.json.tmp" \
+   --argjson sa '{"type":"command","command":"bash /absolute/path/subagent-statusline.sh"}' \
+   '.statusLine = $sl | .subagentStatusLine = $sa' \
+   "$CONFIG_DIR/settings.json" > "$CONFIG_DIR/settings.json.tmp" \
   && mv "$CONFIG_DIR/settings.json.tmp" "$CONFIG_DIR/settings.json"
 ```
 
@@ -142,7 +147,8 @@ If `settings.json` does not exist, create it:
 
 ```bash
 jq -n --argjson sl '{"type":"command","command":"bash /absolute/path/statusline.sh"}' \
-  '{statusLine: $sl}' > "$CONFIG_DIR/settings.json"
+      --argjson sa '{"type":"command","command":"bash /absolute/path/subagent-statusline.sh"}' \
+   '{statusLine: $sl, subagentStatusLine: $sa}' > "$CONFIG_DIR/settings.json"
 ```
 
 ### 8. Confirm success

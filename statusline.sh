@@ -43,6 +43,9 @@ mod_cache=false
 mod_tools=false
 mod_agents=false
 mod_todos=false
+mod_daily=false
+mod_compactions=false
+mod_tokens=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
@@ -86,6 +89,9 @@ if [ -f "$statusline_config" ]; then
                 tools)     mod_tools=true ;;
                 agents)    mod_agents=true ;;
                 todos)     mod_todos=true ;;
+                daily)     mod_daily=true ;;
+                compactions) mod_compactions=true ;;
+                tokens)    mod_tokens=true ;;
             esac
         done <<< "$modules
 $modules2"
@@ -809,7 +815,47 @@ if [ "$mod_weekly" = true ]; then
                 fi
             fi
         fi
-        weekly_info="${GRAY}7d:${NC} ${w_color}${w_bar}${NC} ${w_color}${weekly_pct}%${NC}${w_reset_str}"
+        # weekly_split mode: show per-model breakdown when available from OAuth cache
+        w_split_mode=false
+        if [ -f "$statusline_config" ]; then
+            _ws=$(jq -r '.weekly_split // false' "$statusline_config" 2>/dev/null)
+            [ "$_ws" = "true" ] && w_split_mode=true
+            unset _ws
+        fi
+        if [ "$w_split_mode" = true ]; then
+            w_cache_file="${config_dir}/.usage-cache/usage.json"
+            w_opus=""
+            w_sonnet=""
+            if [ -f "$w_cache_file" ]; then
+                w_opus_raw=$(jq -r '.data.seven_day_opus.utilization // empty' "$w_cache_file" 2>/dev/null)
+                w_sonnet_raw=$(jq -r '.data.seven_day_sonnet.utilization // empty' "$w_cache_file" 2>/dev/null)
+                if [ -n "$w_opus_raw" ] || [ -n "$w_sonnet_raw" ]; then
+                    [ -n "$w_opus_raw" ]   && w_opus=$(printf '%.0f' "$w_opus_raw")
+                    [ -n "$w_sonnet_raw" ] && w_sonnet=$(printf '%.0f' "$w_sonnet_raw")
+                fi
+            fi
+            if [ -n "$w_opus" ] || [ -n "$w_sonnet" ]; then
+                # Color per-model values using same thresholds
+                _wc_opus="$CYAN"
+                [ "${w_opus:-0}" -ge 50 ] 2>/dev/null && _wc_opus="$YELLOW"
+                [ "${w_opus:-0}" -ge 75 ] 2>/dev/null && _wc_opus="$MAGENTA"
+                [ "${w_opus:-0}" -ge 90 ] 2>/dev/null && _wc_opus="$RED"
+                _wc_sonnet="$CYAN"
+                [ "${w_sonnet:-0}" -ge 50 ] 2>/dev/null && _wc_sonnet="$YELLOW"
+                [ "${w_sonnet:-0}" -ge 75 ] 2>/dev/null && _wc_sonnet="$MAGENTA"
+                [ "${w_sonnet:-0}" -ge 90 ] 2>/dev/null && _wc_sonnet="$RED"
+                w_split_str=""
+                [ -n "$w_opus" ]   && w_split_str="${_wc_opus}O:${w_opus}%${NC}"
+                if [ -n "$w_sonnet" ]; then
+                    w_split_str="${w_split_str:+$w_split_str }${_wc_sonnet}S:${w_sonnet}%${NC}"
+                fi
+                weekly_info="${GRAY}7d${NC} ${w_split_str}${w_reset_str}"
+            else
+                weekly_info="${GRAY}7d:${NC} ${w_color}${w_bar}${NC} ${w_color}${weekly_pct}%${NC}${w_reset_str}"
+            fi
+        else
+            weekly_info="${GRAY}7d:${NC} ${w_color}${w_bar}${NC} ${w_color}${weekly_pct}%${NC}${w_reset_str}"
+        fi
     fi
 fi
 
@@ -984,23 +1030,69 @@ if [ "$mod_pace" = true ]; then
             # Hide when remaining is out of valid range (corrupt / expired / future-reset)
             if [ "$pace_remaining" -gt 0 ] 2>/dev/null && [ "$pace_remaining" -le "$pace_window" ] 2>/dev/null; then
                 pace_elapsed=$(( pace_window - pace_remaining ))
-                # Integer math: elapsed * 100 / window
-                pace_expected=$(( pace_elapsed * 100 / pace_window ))
                 # Round used_pct to integer
                 pace_used_int=$(printf '%.0f' "$pace_used")
-                pace_delta=$(( pace_expected - pace_used_int ))
-                # Format with sign
-                if [ "$pace_delta" -ge 0 ] 2>/dev/null; then
-                    pace_color="$GREEN"
-                    pace_sign="+"
-                elif [ "$pace_delta" -ge -10 ] 2>/dev/null; then
-                    pace_color="$YELLOW"
-                    pace_sign=""
-                else
-                    pace_color="$RED"
-                    pace_sign=""
+
+                # Read pace_display config key
+                pace_display_mode="delta"
+                if [ -f "$statusline_config" ]; then
+                    _pd=$(jq -r '.pace_display // empty' "$statusline_config" 2>/dev/null)
+                    [ -n "$_pd" ] && pace_display_mode="$_pd"
+                    unset _pd
                 fi
-                pace_info="${pace_color}pace ${pace_sign}${pace_delta}%${NC}"
+
+                if [ "$pace_display_mode" = "eta" ]; then
+                    # ETA mode: estimate when quota exhausts
+                    # burn rate = used_pct per second (integer * 1000 for precision)
+                    if [ "$pace_elapsed" -gt 0 ] 2>/dev/null && [ "$pace_used_int" -gt 0 ] 2>/dev/null && [ "$pace_used_int" -lt 100 ] 2>/dev/null; then
+                        # rate_milli = used_int * 1000 / elapsed_s  (milli-percent per second)
+                        rate_milli=$(( pace_used_int * 1000 / pace_elapsed ))
+                        if [ "$rate_milli" -eq 0 ]; then
+                            # Burn rate too slow for integer precision — by definition the
+                            # quota outlasts the window. Show safe instead of hiding.
+                            pace_info="${GREEN}⌛ ok${NC}"
+                        fi
+                        if [ "$rate_milli" -gt 0 ] 2>/dev/null; then
+                            # exhaust_s = (100 - used_int) * 1000 / rate_milli
+                            pace_exhaust_s=$(( (100 - pace_used_int) * 1000 / rate_milli ))
+                            pace_eta_epoch=$(( pace_now + pace_exhaust_s ))
+                            if [ "$pace_eta_epoch" -lt "$pace_resets" ] 2>/dev/null; then
+                                # Quota dies before reset — show time
+                                pace_eta_str=$(date -r "$pace_eta_epoch" +%H:%M 2>/dev/null \
+                                    || date -d "@${pace_eta_epoch}" +%H:%M 2>/dev/null)
+                                if [ -n "$pace_eta_str" ]; then
+                                    pace_until_exhaust=$(( pace_eta_epoch - pace_now ))
+                                    if [ "$pace_until_exhaust" -le 3600 ] 2>/dev/null; then
+                                        pace_info="${RED}⌛ ~${pace_eta_str}${NC}"
+                                    else
+                                        pace_info="${YELLOW}⌛ ~${pace_eta_str}${NC}"
+                                    fi
+                                fi
+                            else
+                                # Safe — will not exhaust before reset
+                                pace_info="${GREEN}⌛ ok${NC}"
+                            fi
+                        fi
+                    fi
+                    # If rate is 0 or used is 0 or 100 — hide (same as delta mode hide conditions)
+                else
+                    # Delta mode (default)
+                    # Integer math: elapsed * 100 / window
+                    pace_expected=$(( pace_elapsed * 100 / pace_window ))
+                    pace_delta=$(( pace_expected - pace_used_int ))
+                    # Format with sign
+                    if [ "$pace_delta" -ge 0 ] 2>/dev/null; then
+                        pace_color="$GREEN"
+                        pace_sign="+"
+                    elif [ "$pace_delta" -ge -10 ] 2>/dev/null; then
+                        pace_color="$YELLOW"
+                        pace_sign=""
+                    else
+                        pace_color="$RED"
+                        pace_sign=""
+                    fi
+                    pace_info="${pace_color}pace ${pace_sign}${pace_delta}%${NC}"
+                fi
             fi
         fi
     fi
@@ -1114,6 +1206,150 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
     fi
 fi
 
+# --- Daily budget module (cross-session spend today, opt-in) ---
+daily_info=""
+if [ "$mod_daily" = true ]; then
+    _d_session=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    _d_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // empty' 2>/dev/null)
+    if [ -n "$_d_session" ] && [ -n "$_d_cost" ]; then
+        _d_dir="$config_dir/.ccvitals-daily"
+        _d_today=$(date +%Y-%m-%d)
+        _d_file="$_d_dir/${_d_today}.json"
+        mkdir -p "$_d_dir"
+        # Clean up day-files older than 7 days (guarded: only when dir exists)
+        find "$_d_dir" -maxdepth 1 -name '*.json' -mtime +6 -delete 2>/dev/null || true
+        # Read-modify-write: upsert this session's cost
+        _d_existing="{}"
+        [ -f "$_d_file" ] && _d_existing=$(cat "$_d_file" 2>/dev/null || echo '{}')
+        # Sanitize session id for use as JSON key
+        _d_safe_id=$(printf '%s' "$_d_session" | tr -dc 'a-zA-Z0-9_-' | cut -c1-60)
+        _d_updated=$(printf '%s' "$_d_existing" | jq --arg sid "$_d_safe_id" --argjson cost "$_d_cost" \
+            '.[$sid] = $cost' 2>/dev/null)
+        if [ -n "$_d_updated" ]; then
+            # tmp+mv: atomic replace so concurrent sessions never tear the file
+            printf '%s\n' "$_d_updated" > "${_d_file}.tmp" 2>/dev/null \
+                && mv "${_d_file}.tmp" "$_d_file" 2>/dev/null
+            # Sum all sessions for today
+            _d_total=$(printf '%s' "$_d_updated" | jq '[.[] | numbers] | add // 0' 2>/dev/null)
+        else
+            _d_total="0"
+        fi
+        # Format total
+        _d_fmt=$(printf '%s' "${_d_total:-0}" | awk '{
+            v = $1 + 0
+            if (v < 10) { printf "$%.2f", v }
+            else if (v < 100) { printf "$%.1f", v }
+            else { printf "$%.0f", v }
+        }')
+        # Apply budget coloring if daily_budget configured
+        _d_budget=""
+        if [ -f "$statusline_config" ]; then
+            _d_budget=$(jq -r '.daily_budget // empty' "$statusline_config" 2>/dev/null)
+        fi
+        if [ -n "$_d_budget" ] && [ "$(printf '%s' "$_d_budget" | awk '{print ($1+0>0)?1:0}')" = "1" ]; then
+            # Compute percentage: total / budget * 100
+            _d_pct=$(printf '%s %s' "${_d_total:-0}" "$_d_budget" | awk '{v=$1/$2*100; printf "%.0f", v}' 2>/dev/null)
+            _d_bfmt=$(printf '%s' "$_d_budget" | awk '{
+                v = $1 + 0
+                if (v < 10) { printf "$%.2f", v }
+                else if (v < 100) { printf "$%.1f", v }
+                else { printf "$%.0f", v }
+            }')
+            if [ "${_d_pct:-0}" -ge 100 ] 2>/dev/null; then
+                daily_info="${RED}Σ ${_d_fmt}/${_d_bfmt}${NC}"
+            elif [ "${_d_pct:-0}" -ge 80 ] 2>/dev/null; then
+                daily_info="${MAGENTA}Σ ${_d_fmt}/${_d_bfmt}${NC}"
+            elif [ "${_d_pct:-0}" -ge 50 ] 2>/dev/null; then
+                daily_info="${YELLOW}Σ ${_d_fmt}/${_d_bfmt}${NC}"
+            else
+                daily_info="${GREEN}Σ ${_d_fmt}/${_d_bfmt}${NC}"
+            fi
+        else
+            daily_info="${GRAY}Σ ${_d_fmt}${NC}"
+        fi
+    fi
+fi
+
+# --- Compactions module (count compact_boundary entries, opt-in) ---
+compactions_info=""
+if [ "$mod_compactions" = true ]; then
+    _comp_transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+    if [ -n "$_comp_transcript" ] && [ -f "$_comp_transcript" ]; then
+        _comp_count=$(grep -c '"subtype":"compact_boundary"' "$_comp_transcript" 2>/dev/null || echo 0)
+        if [ "${_comp_count:-0}" -gt 0 ] 2>/dev/null; then
+            compactions_info="${GRAY}↯ ${_comp_count}${NC}"
+        fi
+    fi
+fi
+
+# --- Session tokens module (cumulative input/output, incremental cache, opt-in) ---
+tokens_info=""
+if [ "$mod_tokens" = true ]; then
+    _tok_session=$(echo "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    _tok_transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+    if [ -n "$_tok_session" ] && [ -n "$_tok_transcript" ] && [ -f "$_tok_transcript" ]; then
+        _tok_cache_dir="$config_dir/.ccvitals-tokens"
+        mkdir -p "$_tok_cache_dir"
+        _tok_safe=$(printf '%s' "$_tok_session" | tr -dc 'a-zA-Z0-9_-' | cut -c1-40)
+        _tok_file="$_tok_cache_dir/${_tok_safe}.txt"
+        # Read current line count
+        # grep -c '' counts the final line even without a trailing newline (wc -l misses it)
+        _tok_cur_lines=$(grep -c '' "$_tok_transcript" 2>/dev/null)
+        _tok_proc=0; _tok_total_in=0; _tok_total_out=0
+        if [ -f "$_tok_file" ]; then
+            _tok_proc=$(cut -f1 "$_tok_file" 2>/dev/null || echo 0)
+            _tok_total_in=$(cut -f2 "$_tok_file" 2>/dev/null || echo 0)
+            _tok_total_out=$(cut -f3 "$_tok_file" 2>/dev/null || echo 0)
+        fi
+        # Ensure numeric
+        _tok_proc=${_tok_proc:-0}; _tok_total_in=${_tok_total_in:-0}; _tok_total_out=${_tok_total_out:-0}
+        _tok_cur_lines=${_tok_cur_lines:-0}
+        # Detect shrink (compact reset)
+        if [ "$_tok_cur_lines" -lt "$_tok_proc" ] 2>/dev/null; then
+            _tok_proc=0; _tok_total_in=0; _tok_total_out=0
+        fi
+        # Process new lines if any
+        if [ "$_tok_cur_lines" -gt "$_tok_proc" ] 2>/dev/null; then
+            _tok_new_start=$(( _tok_proc + 1 ))
+            _tok_delta=$(tail -n "+${_tok_new_start}" "$_tok_transcript" 2>/dev/null | jq -Rs '
+              [split("\n")[] | select(length>0) | try fromjson catch empty
+               | select(.type=="assistant")
+               | .message.usage // {}
+               | {
+                   i: ((.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)),
+                   o: (.output_tokens // 0)
+                 }
+              ] | {in: (map(.i) | add // 0), out: (map(.o) | add // 0)}' 2>/dev/null)
+            if [ -n "$_tok_delta" ]; then
+                _d_in=$(printf '%s' "$_tok_delta" | jq -r '.in // 0' 2>/dev/null || echo 0)
+                _d_out=$(printf '%s' "$_tok_delta" | jq -r '.out // 0' 2>/dev/null || echo 0)
+                _tok_total_in=$(( _tok_total_in + _d_in ))
+                _tok_total_out=$(( _tok_total_out + _d_out ))
+            fi
+            _tok_proc="$_tok_cur_lines"
+            printf '%s\t%s\t%s\n' "$_tok_proc" "$_tok_total_in" "$_tok_total_out" > "${_tok_file}.tmp" \
+                && mv "${_tok_file}.tmp" "$_tok_file"
+        fi
+        # Format using same _fmt_k logic (inline since _fmt_k is scoped inside context block)
+        _fmtk() {
+            local n="$1"
+            if [ "${n:-0}" -ge 1000000 ] 2>/dev/null; then
+                printf '%dM' "$(( n / 1000000 ))"
+            elif [ "${n:-0}" -ge 100000 ] 2>/dev/null; then
+                printf '%dk' "$(( n / 1000 ))"
+            elif [ "${n:-0}" -ge 1000 ] 2>/dev/null; then
+                local _q=$(( n / 100 ))
+                printf '%d.%dk' "$(( _q / 10 ))" "$(( _q % 10 ))"
+            else
+                printf '%d' "${n:-0}"
+            fi
+        }
+        _tok_in_str=$(_fmtk "$_tok_total_in")
+        _tok_out_str=$(_fmtk "$_tok_total_out")
+        tokens_info="${GRAY}⇅ ${_tok_in_str}/${_tok_out_str}${NC}"
+    fi
+fi
+
 # --- Compose output ---
 # Each module produced a bare chunk (no leading separator). Route every enabled
 # chunk to line 1 or line 2 depending on whether its module name appears in
@@ -1174,6 +1410,9 @@ route cache    "$cache_info"
 route tools    "$tools_info"
 route agents   "$agents_info"
 route todos    "$todos_info"
+route daily    "$daily_info"
+route compactions "$compactions_info"
+route tokens   "$tokens_info"
 
 # --- Powerline render helper ---
 # build_pl_line <count_var_prefix> <line_number>
