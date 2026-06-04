@@ -220,6 +220,8 @@ Switch theme by running `/ccvitals:configure` (plugin install) or editing the co
 
 Set `"powerline": true` in `~/.claude/.statusline-config.json` to render each module as a shaded segment separated by the Nerd Font arrow glyph (U+E0B0, ``) instead of ` | `:
 
+![ccvitals powerline mode](assets/powerline.png)
+
 ```json
 {
   "modules": ["directory", "model", "context", "usage", "git"],
