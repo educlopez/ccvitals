@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-06-04
+
 ### Added
 
 - **Pastel theme** (`pastel`) — soft lavender/cyan palette
 - Per-theme static preview images in the README (`assets/themes/*.png`), regenerable with `assets/generate-theme-previews.sh`
+- **Git ahead/behind** — after the branch name, appends `↑N ↓M` when upstream diverges (GREEN ahead, YELLOW behind); both omitted when 0
+- **OSC 8 clickable branch** — `git` module wraps the branch name in a terminal hyperlink (`ESC]8;;URL\ESC\\`) for GitHub/GitLab remotes; handles both `git@host:owner/repo.git` and `https://host/owner/repo.git` forms
+- **OSC 8 clickable PR** — `pr` module wraps `PR #N` in an OSC 8 hyperlink when `pr.url` is present in stdin
+- **Pace module** (`pace`, opt-in) — burn-rate vs 5h quota window: computes how far ahead/behind the expected consumption rate you are; GREEN ≥0%, YELLOW -10%–0%, RED <-10%; hidden when `rate_limits.five_hour` absent or window invalid
+- **Cache module** (`cache`, opt-in) — Anthropic prompt-cache TTL countdown (300s from last transcript entry): `cache 4m12s` (GREEN/YELLOW/RED by urgency) or `cache cold`; reads `transcript_path` from stdin, hidden when absent
+- **Context display modes** — new optional config key `context_display`: `"percent"` (default), `"tokens"` (e.g. `45.2k/200k`), or `"both"` (e.g. `45.2k/200k 23%`)
 
 ## [1.5.0] - 2026-06-04
 
@@ -105,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/educlopez/ccvitals/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/educlopez/ccvitals/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/educlopez/ccvitals/compare/v1.3.0...v1.4.0
 [1.0.0]: https://github.com/educlopez/ccvitals/releases/tag/v1.0.0

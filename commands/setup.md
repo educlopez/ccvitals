@@ -36,7 +36,7 @@ Use AskUserQuestion to ask:
 > Which module preset would you like?
 >
 > **1) Essential** (recommended) — directory, model, context, usage, git
-> **2) Everything** — all 16 modules (adds: rtk, codegraph, lines, mode, cost, duration, speed, vim, agent, pr, weekly)
+> **2) Everything** — all 18 modules (adds: rtk, codegraph, lines, mode, cost, duration, speed, vim, agent, pr, weekly, pace, cache)
 > **3) Custom** — start with Essential, then choose which extras to add
 >
 > Enter 1, 2, or 3.
@@ -57,6 +57,8 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 > - **agent** — Active agent name
 > - **pr** — Linked PR number and review state
 > - **weekly** — 7-day quota bar with reset countdown
+> - **pace** — burn-rate vs quota window (e.g. `pace +12%`)
+> - **cache** — prompt-cache freshness countdown (e.g. `cache 4m12s`)
 >
 > List the names separated by spaces, or press Enter to skip all.
 
@@ -64,7 +66,7 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 
 Based on the preset:
 - **Essential**: modules = `["directory", "model", "context", "usage", "git"]`
-- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly"]`
+- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly", "pace", "cache"]`
 - **Custom**: Essential set plus whatever extras the user selected
 
 There is no `modules_line2` in the setup flow (single-line layout). Use `/ccvitals:configure` to set up a two-line layout later.

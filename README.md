@@ -132,9 +132,9 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 |--------|---------------|
 | `directory` | Current project folder name |
 | `model` | Active model (Opus 4.6, Sonnet 4.6, etc.) |
-| `context` | Context window progress bar + percentage; turns red with a `⚠` when the context is large (≥150k tokens or over 200k) — a nudge to `/compact`, since long context is expensive even when cached |
+| `context` | Context window progress bar + percentage (default); set `"context_display": "tokens"` for `26.0k/200k` format, or `"both"` for `26.0k/200k 13%`; turns red with a `⚠` when the context is large (≥90%) |
 | `usage` | 5h quota bar, reset timer, plan badge (Pro/Max/Team), 7d warning |
-| `git` | Branch name, changed files count, lines added/removed |
+| `git` | Branch name, changed files count, lines added/removed; when an upstream exists, shows `↑N ↓M` ahead/behind counts (GREEN/YELLOW); branch name is a clickable OSC 8 link on GitHub/GitLab remotes |
 | `rtk` | RTK token-savings % — e.g. `rtk 86.8%↓` (needs the `rtk` CLI) |
 | `codegraph` | CodeGraph index size + stale marker — e.g. `⬡ 11.7k ⚠3` (needs the `codegraph` CLI; only shows in indexed projects) |
 | `lines` | Lines added/removed this session — e.g. `+264 -195` (cumulative agent edits, distinct from the git working-tree diff) |
@@ -144,10 +144,12 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `speed` | Token throughput — e.g. `42 tok/s` (delta between renders, cached per session) |
 | `vim` | Vim mode indicator — `N` / `I` / `V` / `VL` with distinct colors |
 | `agent` | Active agent name — e.g. `@ my-agent` (hidden when no agent active) |
-| `pr` | Linked PR number and review state — e.g. `PR #123 approved` (hidden when absent) |
+| `pr` | Linked PR number and review state — e.g. `PR #123 approved` (hidden when absent); `PR #N` is a clickable OSC 8 hyperlink when `pr.url` is present |
 | `weekly` | 7-day quota bar with reset countdown — e.g. `7d: ████░░░░░░ 38% 4d2h` |
+| `pace` | Burn-rate vs 5h quota window — e.g. `pace +12%` (GREEN = under budget, YELLOW = slightly over, RED = burning fast); hidden when rate_limits absent |
+| `cache` | Prompt-cache freshness countdown — e.g. `cache 4m12s` or `cache cold` (reads `transcript_path` from stdin; hidden when absent) |
 
-> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, and `weekly` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, and `cache` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
 > each silently hides itself when its CLI isn't installed. All other new modules

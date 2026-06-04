@@ -38,6 +38,8 @@ mod_vim=false
 mod_agent=false
 mod_pr=false
 mod_weekly=false
+mod_pace=false
+mod_cache=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
@@ -76,6 +78,8 @@ if [ -f "$statusline_config" ]; then
                 agent)     mod_agent=true ;;
                 pr)        mod_pr=true ;;
                 weekly)    mod_weekly=true ;;
+                pace)      mod_pace=true ;;
+                cache)     mod_cache=true ;;
             esac
         done <<< "$modules
 $modules2"
@@ -249,7 +253,40 @@ if [ "$mod_context" = true ]; then
         ctx_warn=" ${RED}⚠${NC}"
     fi
 
-    context_info="${GRAY}${bar}${NC} ${ctx_color}${context_percent}%${NC}${ctx_warn}"
+    # context_display: "percent" (default), "tokens", or "both"
+    ctx_display=""
+    if [ -f "$statusline_config" ]; then
+        ctx_display=$(jq -r '.context_display // empty' "$statusline_config" 2>/dev/null)
+    fi
+
+    case "${ctx_display:-percent}" in
+        tokens|both)
+            # Format token counts: under 100k → one decimal k; 100k+ → integer k; 1M+ → M
+            _fmt_k() {
+                local n="$1"
+                if [ "$n" -ge 1000000 ] 2>/dev/null; then
+                    printf '%dM' "$((n / 1000000))"
+                elif [ "$n" -ge 100000 ] 2>/dev/null; then
+                    printf '%dk' "$((n / 1000))"
+                elif [ "$n" -ge 1000 ] 2>/dev/null; then
+                    # one decimal: e.g. 45200 -> 45.2k
+                    local q=$((n / 100))
+                    printf '%d.%dk' "$((q / 10))" "$((q % 10))"
+                else
+                    printf '%d' "$n"
+                fi
+            }
+            tok_str="$(_fmt_k "${current_tokens:-0}")/$(_fmt_k "$context_size")"
+            if [ "${ctx_display}" = "tokens" ]; then
+                context_info="${GRAY}${bar}${NC} ${ctx_color}${tok_str}${NC}${ctx_warn}"
+            else
+                context_info="${GRAY}${bar}${NC} ${ctx_color}${tok_str} ${context_percent}%${NC}${ctx_warn}"
+            fi
+            ;;
+        *)
+            context_info="${GRAY}${bar}${NC} ${ctx_color}${context_percent}%${NC}${ctx_warn}"
+            ;;
+    esac
 fi
 
 # --- Usage/Quota fetch (cached) ---
@@ -642,7 +679,13 @@ if [ "$mod_pr" = true ]; then
     pr_num=$(echo "$input" | jq -r '.pr.number // empty')
     if [ -n "$pr_num" ]; then
         pr_review=$(echo "$input" | jq -r '.pr.review_state // empty')
-        pr_info="${CYAN}PR #${pr_num}${NC}"
+        pr_url=$(echo "$input" | jq -r '.pr.url // empty')
+        pr_text="${CYAN}PR #${pr_num}${NC}"
+        # OSC 8 hyperlink when URL present
+        if [ -n "$pr_url" ]; then
+            pr_text="\033]8;;${pr_url}\033\\${CYAN}PR #${pr_num}${NC}\033]8;;\033\\"
+        fi
+        pr_info="$pr_text"
         [ -n "$pr_review" ] && pr_info="${pr_info} ${GRAY}${pr_review}${NC}"
     fi
 fi
@@ -790,6 +833,37 @@ if [ "$mod_git" = true ]; then
 
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         branch=$(git branch --show-current 2>/dev/null || echo "detached")
+
+        # Ahead/behind counts relative to upstream
+        ab_ahead=""
+        ab_behind=""
+        ab_counts=$(git rev-list --left-right --count '@{upstream}...HEAD' 2>/dev/null)
+        if [ -n "$ab_counts" ]; then
+            ab_behind=$(printf '%s' "$ab_counts" | cut -f1)
+            ab_ahead=$(printf '%s' "$ab_counts" | cut -f2)
+            # Treat "0" as empty (suppress)
+            [ "${ab_ahead:-0}" -eq 0 ]  2>/dev/null && ab_ahead=""
+            [ "${ab_behind:-0}" -eq 0 ] 2>/dev/null && ab_behind=""
+        fi
+
+        # OSC 8 clickable branch link for GitHub/GitLab remotes
+        branch_text="${YELLOW}${branch}${NC}"
+        origin_url=$(git remote get-url origin 2>/dev/null)
+        if [ -n "$origin_url" ]; then
+            # Normalise git@host:owner/repo.git and https://host/owner/repo.git
+            case "$origin_url" in
+                git@github.com:*|git@gitlab.com:*)
+                    _host=$(printf '%s' "$origin_url" | sed 's/git@\([^:]*\):.*/\1/')
+                    _path=$(printf '%s' "$origin_url" | sed 's/git@[^:]*://; s/\.git$//')
+                    branch_text="\033]8;;https://${_host}/${_path}/tree/${branch}\033\\${YELLOW}${branch}${NC}\033]8;;\033\\"
+                    ;;
+                https://github.com/*|https://gitlab.com/*)
+                    _url=$(printf '%s' "$origin_url" | sed 's/\.git$//')
+                    branch_text="\033]8;;${_url}/tree/${branch}\033\\${YELLOW}${branch}${NC}\033]8;;\033\\"
+                    ;;
+            esac
+        fi
+
         status_output=$(git status --porcelain 2>/dev/null)
 
         if [ -n "$status_output" ]; then
@@ -798,12 +872,108 @@ if [ "$mod_git" = true ]; then
             added=$(echo "$line_stats" | cut -d' ' -f1)
             removed=$(echo "$line_stats" | cut -d' ' -f2)
 
-            git_info="${YELLOW}($branch${NC} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
+            git_info="${YELLOW}(${NC}${branch_text} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
             [ "$added" -gt 0 ] && git_info="${git_info} ${GREEN}+${added}${NC}"
             [ "$removed" -gt 0 ] && git_info="${git_info} ${RED}-${removed}${NC}"
-            git_info="${git_info} ${YELLOW})${NC}"
         else
-            git_info="${YELLOW}($branch)${NC}"
+            git_info="${YELLOW}(${NC}${branch_text}"
+        fi
+
+        # Append ahead/behind after branch (before closing paren)
+        if [ -n "$ab_ahead" ]; then
+            git_info="${git_info} ${GREEN}↑${ab_ahead}${NC}"
+        fi
+        if [ -n "$ab_behind" ]; then
+            git_info="${git_info} ${YELLOW}↓${ab_behind}${NC}"
+        fi
+        git_info="${git_info}${YELLOW})${NC}"
+    fi
+fi
+
+# --- Pace module (burn-rate vs 5h quota window) ---
+pace_info=""
+if [ "$mod_pace" = true ]; then
+    pace_used=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
+    pace_resets=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty' 2>/dev/null)
+    if [ -n "$pace_used" ] && [ -n "$pace_resets" ]; then
+        # Only proceed when resets_at looks like a unix epoch integer
+        case "$pace_resets" in
+            ''|*[!0-9]*)
+                pace_resets=""
+                ;;
+        esac
+        if [ -n "$pace_resets" ]; then
+            pace_now=$(date +%s)
+            pace_window=18000  # 5 hours in seconds
+            pace_remaining=$(( pace_resets - pace_now ))
+            # Hide when remaining is out of valid range (corrupt / expired / future-reset)
+            if [ "$pace_remaining" -gt 0 ] 2>/dev/null && [ "$pace_remaining" -le "$pace_window" ] 2>/dev/null; then
+                pace_elapsed=$(( pace_window - pace_remaining ))
+                # Integer math: elapsed * 100 / window
+                pace_expected=$(( pace_elapsed * 100 / pace_window ))
+                # Round used_pct to integer
+                pace_used_int=$(printf '%.0f' "$pace_used")
+                pace_delta=$(( pace_expected - pace_used_int ))
+                # Format with sign
+                if [ "$pace_delta" -ge 0 ] 2>/dev/null; then
+                    pace_color="$GREEN"
+                    pace_sign="+"
+                elif [ "$pace_delta" -ge -10 ] 2>/dev/null; then
+                    pace_color="$YELLOW"
+                    pace_sign=""
+                else
+                    pace_color="$RED"
+                    pace_sign=""
+                fi
+                pace_info="${pace_color}pace ${pace_sign}${pace_delta}%${NC}"
+            fi
+        fi
+    fi
+fi
+
+# --- Cache module (prompt-cache freshness countdown) ---
+cache_info=""
+if [ "$mod_cache" = true ]; then
+    cache_transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
+    if [ -n "$cache_transcript" ] && [ -f "$cache_transcript" ]; then
+        # Read only the last line — tail seeks from EOF, no full-file read
+        cache_last_line=$(tail -n 1 "$cache_transcript" 2>/dev/null)
+        if [ -n "$cache_last_line" ]; then
+            cache_ts=$(printf '%s' "$cache_last_line" | jq -r '.timestamp // empty' 2>/dev/null)
+            if [ -n "$cache_ts" ]; then
+                # Parse ISO8601 to epoch (BSD/GNU dual pattern, strip fractional seconds).
+                # UTC forms (Z / +00:00 / -00:00 / bare) normalize to Z for BSD date -j;
+                # non-UTC offsets fall through to GNU date -d, which honors them.
+                cache_clean_ts=$(printf '%s' "$cache_ts" | sed -E 's/\.[0-9]+//; s/[+-]00:00$/Z/; s/([0-9]{2}:[0-9]{2}:[0-9]{2})$/\1Z/')
+                cache_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$cache_clean_ts" +%s 2>/dev/null \
+                    || date -u -d "$cache_clean_ts" +%s 2>/dev/null)
+                if [ -n "$cache_epoch" ]; then
+                    cache_now=$(date +%s)
+                    cache_ttl=300  # Anthropic prompt cache TTL = 300s
+                    cache_remaining=$(( cache_ttl - (cache_now - cache_epoch) ))
+                    if [ "$cache_remaining" -gt 0 ] 2>/dev/null; then
+                        # Format remaining time
+                        if [ "$cache_remaining" -ge 60 ] 2>/dev/null; then
+                            cm=$(( cache_remaining / 60 ))
+                            cs=$(( cache_remaining % 60 ))
+                            cache_time="${cm}m${cs}s"
+                        else
+                            cache_time="${cache_remaining}s"
+                        fi
+                        # Color based on urgency
+                        if [ "$cache_remaining" -gt 120 ] 2>/dev/null; then
+                            cache_color="$GREEN"
+                        elif [ "$cache_remaining" -gt 30 ] 2>/dev/null; then
+                            cache_color="$YELLOW"
+                        else
+                            cache_color="$RED"
+                        fi
+                        cache_info="${cache_color}cache ${cache_time}${NC}"
+                    else
+                        cache_info="${GRAY}cache cold${NC}"
+                    fi
+                fi
+            fi
         fi
     fi
 fi
@@ -843,6 +1013,8 @@ route vim      "$vim_info"
 route agent    "$agent_info"
 route pr       "$pr_info"
 route weekly   "$weekly_info"
+route pace     "$pace_info"
+route cache    "$cache_info"
 
 if [ -n "$line2" ]; then
     printf '%b\n%b\n' "$line1" "$line2"

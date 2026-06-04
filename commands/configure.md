@@ -53,6 +53,8 @@ Use AskUserQuestion to ask:
 > - **agent** — active agent name
 > - **pr** — linked PR number and review state
 > - **weekly** — 7-day quota bar with reset countdown
+> - **pace** — burn-rate vs quota window (e.g. `pace +12%`)
+> - **cache** — prompt-cache freshness countdown (e.g. `cache 4m12s`)
 >
 > List all modules you want enabled, separated by spaces.
 > Example: `directory model context usage git lines mode`
@@ -102,9 +104,23 @@ If they choose **8 (custom)**, use AskUserQuestion to ask for each of the 7 colo
 
 Save the theme name as `CHOSEN_THEME` (e.g. `"tokyo-night"`). For custom, also save a `colors` object with the non-blank entries.
 
+### 5b. Ask about context display mode (optional)
+
+Use AskUserQuestion to ask:
+
+> How would you like the context window displayed? (leave blank to keep current / use default)
+>
+> - **percent** (default) — `░░░░░░░░░░░░░░░ 13%`
+> - **tokens** — `░░░░░░░░░░░░░░░ 26.0k/200k`
+> - **both** — `░░░░░░░░░░░░░░░ 26.0k/200k 13%`
+>
+> Enter `percent`, `tokens`, or `both` (or press Enter to keep current).
+
+Save as `CONTEXT_DISPLAY`. If the user presses Enter, keep the existing value (omit the key if not already set).
+
 ### 6. Write `~/.claude/.statusline-config.json`
 
-Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`. Preserve the existing `modules` and `modules_line2` keys; add or update the `theme` key (and optional `colors` key for custom).
+Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`. Preserve the existing `modules` and `modules_line2` keys; add or update the `theme` key (and optional `colors` key for custom). If `CONTEXT_DISPLAY` was chosen and is not `"percent"`, also set `"context_display"` in the config.
 
 **Single-line layout** (no two-line selection or empty line2):
 
