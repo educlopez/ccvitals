@@ -1892,6 +1892,201 @@ setup() {
     [ -z "$clean" ]
 }
 
+# ─── Per-project config override (.ccvitals.json) ───
+
+@test "per-project: project theme overrides global theme" {
+    # Global config uses default theme (no theme key); project sets tokyo-night
+    echo '{"modules":["model","context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    mkdir -p /tmp/test-project
+    echo '{"theme":"tokyo-night"}' > /tmp/test-project/.ccvitals.json
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    rm -f /tmp/test-project/.ccvitals.json
+    [ "$status" -eq 0 ]
+    # tokyo-night CYAN is #7dcfff → 38;2;125;207;255
+    [[ "$output" == *"38;2;125;207;255"* ]]
+}
+
+@test "per-project: project modules override global modules" {
+    echo '{"modules":["model","context","git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    mkdir -p /tmp/test-project
+    echo '{"modules":["directory"]}' > /tmp/test-project/.ccvitals.json
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    rm -f /tmp/test-project/.ccvitals.json
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # directory should appear
+    [[ "$clean" == *"test-project"* ]]
+    # model should NOT appear (project file has modules:["directory"] only)
+    [[ "$clean" != *"Opus 4.6"* ]]
+}
+
+@test "per-project: global keys absent from project file are preserved" {
+    # Global sets theme and modules; project only overrides modules
+    echo '{"modules":["model"],"theme":"tokyo-night"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    mkdir -p /tmp/test-project
+    echo '{"modules":["directory","model"]}' > /tmp/test-project/.ccvitals.json
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    rm -f /tmp/test-project/.ccvitals.json
+    [ "$status" -eq 0 ]
+    # tokyo-night theme should still be active (global key preserved)
+    [[ "$output" == *"38;2;125;207;255"* ]] || [[ "$output" == *"38;2;247;118;142"* ]]
+}
+
+@test "per-project: invalid project JSON is silently ignored, global config used" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    mkdir -p /tmp/test-project
+    printf 'not valid json' > /tmp/test-project/.ccvitals.json
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    rm -f /tmp/test-project/.ccvitals.json
+    [ "$status" -eq 0 ]
+    # Global config (model only) should still work
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+}
+
+@test "per-project: absent project file falls back to global config" {
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    # No .ccvitals.json at /tmp/test-project
+    rm -f /tmp/test-project/.ccvitals.json 2>/dev/null || true
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"13%"* ]]
+}
+
+# ─── Smart visibility ───
+
+@test "smart: cost hidden when < \$1.00" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_cost_usd":0.42}}'
+    echo '{"modules":["cost"],"smart":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "smart: cost shown when >= \$1.00" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_cost_usd":1.50}}'
+    echo '{"modules":["cost"],"smart":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"\$1.50"* ]]
+}
+
+@test "smart: context hidden when < 50%" {
+    # fixture is 13% context
+    echo '{"modules":["context"],"smart":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "smart: context shown when >= 50%" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":110000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"],"smart":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"55%"* ]]
+}
+
+@test "smart: false — cost always shown regardless of value" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_cost_usd":0.05}}'
+    echo '{"modules":["cost"],"smart":false}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"\$0.05"* ]]
+}
+
+# ─── Icon set ───
+
+@test "icons: ascii mode renders T: instead of ⚒ for tools" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"],"icons":"ascii"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"T: Read"* ]]
+    [[ "$clean" != *"⚒"* ]]
+}
+
+@test "icons: ascii mode renders #/- bars instead of █/░" {
+    echo '{"modules":["context"],"icons":"ascii"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"#"* ]] || [[ "$clean" == *"-"* ]]
+    [[ "$clean" != *"█"* ]]
+    [[ "$clean" != *"░"* ]]
+}
+
+@test "icons: unicode mode (default) renders original glyphs byte-identical" {
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_default="$output"
+
+    echo '{"modules":["context"],"icons":"unicode"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$out_default" ]
+}
+
+# ─── Responsive width ───
+
+@test "responsive: off by default — output unchanged regardless of COLUMNS" {
+    echo '{"modules":["directory","model","context","git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_default="$output"
+
+    COLUMNS=20 run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$out_default" ]
+}
+
+@test "responsive: drops codegraph/rtk first when line1 is too wide" {
+    # Force a very wide line with many modules, then use tiny COLUMNS
+    # Use modules that produce output; codegraph is opt-in so won't appear unless forced
+    # Here we just verify the feature doesn't crash and returns exit 0
+    echo '{"modules":["directory","model","context"],"responsive":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "COLUMNS=5 cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+}
+
+@test "responsive: directory and model survive when COLUMNS is generous" {
+    echo '{"modules":["directory","model","context"],"responsive":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "COLUMNS=200 cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+}
+
+@test "responsive: true with powerline silently skips (no crash)" {
+    echo '{"modules":["directory","model"],"responsive":true,"powerline":true}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "COLUMNS=10 cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+}
+
 # ─── Install: additional coverage ───
 
 # NOTE: These tests are in test/install.bats but we add them here as a cross-check

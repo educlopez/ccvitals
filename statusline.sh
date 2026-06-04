@@ -21,6 +21,37 @@ if [ -f "$config_dir/.statusline-debug" ]; then
     printf '%s\n' "$input" > "$config_dir/statusline-debug.json" 2>/dev/null
 fi
 
+# --- Per-project config override ---
+# If a .ccvitals.json file exists at the workspace root, object-merge it over
+# the global config (jq '*': keys present in the project file win — note that
+# ARRAYS like "modules" are replaced wholesale, not unioned). All config reads
+# below use the effective_config variable.
+# Security: project values are only ever consumed as jq output (data), never
+# passed to eval or executed.
+_ws_root=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .workspace.current_dir // empty' 2>/dev/null)
+_global_json=""
+if [ -f "$statusline_config" ]; then
+    _global_json=$(cat "$statusline_config" 2>/dev/null)
+    if ! printf '%s' "$_global_json" | jq empty 2>/dev/null; then
+        echo "ccvitals: invalid JSON in $statusline_config — using defaults" >&2
+        _global_json=""
+    fi
+fi
+_proj_json=""
+if [ -n "$_ws_root" ] && [ -f "$_ws_root/.ccvitals.json" ]; then
+    _proj_json=$(cat "$_ws_root/.ccvitals.json" 2>/dev/null)
+    printf '%s' "$_proj_json" | jq empty 2>/dev/null || _proj_json=""
+fi
+if [ -n "$_global_json" ] && [ -n "$_proj_json" ]; then
+    effective_config=$(printf '%s\n%s' "$_global_json" "$_proj_json" | jq -s '.[0] * .[1]' 2>/dev/null)
+elif [ -n "$_proj_json" ]; then
+    # Project-only config works even without a global one
+    effective_config="$_proj_json"
+else
+    effective_config="$_global_json"
+fi
+unset _ws_root _global_json _proj_json
+
 # Default: core modules enabled; tool modules (rtk, codegraph) are opt-in
 mod_directory=true
 mod_model=true
@@ -51,9 +82,9 @@ mod_tokens=false
 # set checked during composition). Empty = everything on one line.
 line2_set=""
 
-if [ -f "$statusline_config" ]; then
-    modules=$(jq -r '.modules[]?' "$statusline_config" 2>/dev/null)
-    modules2=$(jq -r '.modules_line2[]?' "$statusline_config" 2>/dev/null)
+if [ -n "$effective_config" ]; then
+    modules=$(printf '%s' "$effective_config" | jq -r '.modules[]?' 2>/dev/null)
+    modules2=$(printf '%s' "$effective_config" | jq -r '.modules_line2[]?' 2>/dev/null)
     line2_set=$(printf '%s' "$modules2" | tr '\n' ' ')
     if [ -n "$modules" ] || [ -n "$modules2" ]; then
         # Disable all, then enable the union of both rows
@@ -125,8 +156,8 @@ MAGENTA='\033[0;95m'
 NC='\033[0m' # No Color
 
 # Apply theme preset if configured. Falls back to defaults silently on any error.
-if [ -f "$statusline_config" ]; then
-    _theme=$(jq -r '.theme // empty' "$statusline_config" 2>/dev/null)
+if [ -n "$effective_config" ]; then
+    _theme=$(printf '%s' "$effective_config" | jq -r '.theme // empty' 2>/dev/null)
     case "$_theme" in
         pastel)
             RED=$(hex_to_ansi '#ee7975')
@@ -184,13 +215,13 @@ if [ -f "$statusline_config" ]; then
             ;;
         custom)
             # Apply per-color overrides; missing keys keep the default value
-            _c_red=$(jq -r '.colors.red // empty' "$statusline_config" 2>/dev/null)
-            _c_green=$(jq -r '.colors.green // empty' "$statusline_config" 2>/dev/null)
-            _c_blue=$(jq -r '.colors.blue // empty' "$statusline_config" 2>/dev/null)
-            _c_yellow=$(jq -r '.colors.yellow // empty' "$statusline_config" 2>/dev/null)
-            _c_cyan=$(jq -r '.colors.cyan // empty' "$statusline_config" 2>/dev/null)
-            _c_gray=$(jq -r '.colors.gray // empty' "$statusline_config" 2>/dev/null)
-            _c_magenta=$(jq -r '.colors.magenta // empty' "$statusline_config" 2>/dev/null)
+            _c_red=$(printf '%s' "$effective_config" | jq -r '.colors.red // empty' 2>/dev/null)
+            _c_green=$(printf '%s' "$effective_config" | jq -r '.colors.green // empty' 2>/dev/null)
+            _c_blue=$(printf '%s' "$effective_config" | jq -r '.colors.blue // empty' 2>/dev/null)
+            _c_yellow=$(printf '%s' "$effective_config" | jq -r '.colors.yellow // empty' 2>/dev/null)
+            _c_cyan=$(printf '%s' "$effective_config" | jq -r '.colors.cyan // empty' 2>/dev/null)
+            _c_gray=$(printf '%s' "$effective_config" | jq -r '.colors.gray // empty' 2>/dev/null)
+            _c_magenta=$(printf '%s' "$effective_config" | jq -r '.colors.magenta // empty' 2>/dev/null)
             [ -n "$_c_red" ]     && RED=$(hex_to_ansi "$_c_red")
             [ -n "$_c_green" ]   && GREEN=$(hex_to_ansi "$_c_green")
             [ -n "$_c_blue" ]    && BLUE=$(hex_to_ansi "$_c_blue")
@@ -206,6 +237,81 @@ if [ -f "$statusline_config" ]; then
     unset _theme _c_red _c_green _c_blue _c_yellow _c_cyan _c_gray _c_magenta
 fi
 
+# --- Icon set resolution ---
+# Resolve all icon glyphs into variables. Default = unicode (byte-identical to existing).
+# ascii: plain ASCII fallback for terminals without unicode support.
+# nerd: Nerd Font icons for richer display.
+ICON_TOOLS="⚒"
+ICON_AGENTS="◉"
+ICON_TODOS="☑"
+ICON_ETA="⌛"
+ICON_TOKENS="⇅"
+ICON_COMPACTIONS="↯"
+ICON_MODE_FAST="⚡"
+ICON_WARN="⚠"
+ICON_BAR_FILL="█"
+ICON_BAR_EMPTY="░"
+ICON_AHEAD="↑"
+ICON_BEHIND="↓"
+
+if [ -n "$effective_config" ]; then
+    _icons=$(printf '%s' "$effective_config" | jq -r '.icons // empty' 2>/dev/null)
+    case "$_icons" in
+        ascii)
+            ICON_TOOLS="T:"
+            ICON_AGENTS="A:"
+            ICON_TODOS="[x]"
+            ICON_ETA="eta"
+            ICON_TOKENS="io"
+            ICON_COMPACTIONS="cmp"
+            ICON_MODE_FAST="!"
+            ICON_WARN="(!)"
+            ICON_BAR_FILL="#"
+            ICON_BAR_EMPTY="-"
+            ICON_AHEAD="+"
+            ICON_BEHIND="-"
+            ;;
+        nerd)
+            ICON_TOOLS=$''   # wrench
+            ICON_AGENTS=$''  # robot
+            ICON_TODOS=$''   # check
+            ICON_ETA=$''     # clock
+            ICON_TOKENS=$''  # exchange
+            ICON_COMPACTIONS=$''  # history
+            ICON_MODE_FAST=$''    # lightning
+            ICON_WARN=$''    # warning triangle
+            ICON_BAR_FILL="█"
+            ICON_BAR_EMPTY="░"
+            ICON_AHEAD=$''   # arrow up
+            ICON_BEHIND=$''  # arrow down
+            ;;
+        unicode|'')
+            # Keep defaults above
+            ;;
+    esac
+    unset _icons
+fi
+
+# --- Smart visibility config ---
+# When smart=true, modules only appear when their value is notable (see below).
+# Default: false — behavior identical to before this feature.
+smart_mode=false
+if [ -n "$effective_config" ]; then
+    _sm=$(printf '%s' "$effective_config" | jq -r '.smart // false' 2>/dev/null)
+    [ "$_sm" = "true" ] && smart_mode=true
+    unset _sm
+fi
+
+# --- Responsive width config ---
+# When responsive=true and COLUMNS is numeric, line1 is trimmed to fit.
+# Only applies to non-powerline mode; powerline is skipped silently.
+responsive_mode=false
+if [ -n "$effective_config" ]; then
+    _rsp=$(printf '%s' "$effective_config" | jq -r '.responsive // false' 2>/dev/null)
+    [ "$_rsp" = "true" ] && responsive_mode=true
+    unset _rsp
+fi
+
 # --- Powerline rendering ---
 # Read powerline flag and optional separator glyph from config.
 # All powerline variables default to empty so the non-powerline path is
@@ -217,15 +323,15 @@ PL_BG_B=''         # background escape for odd-indexed segments
 PL_FG_A=''         # fg version of BG_A (for the separator glyph itself)
 PL_FG_B=''         # fg version of BG_B
 
-if [ -f "$statusline_config" ]; then
-    _pl=$(jq -r '.powerline // false' "$statusline_config" 2>/dev/null)
+if [ -n "$effective_config" ]; then
+    _pl=$(printf '%s' "$effective_config" | jq -r '.powerline // false' 2>/dev/null)
     if [ "$_pl" = "true" ]; then
         PL_ON=true
         # Optional separator override
-        _pl_sep=$(jq -r '.powerline_separator // empty' "$statusline_config" 2>/dev/null)
+        _pl_sep=$(printf '%s' "$effective_config" | jq -r '.powerline_separator // empty' 2>/dev/null)
         [ -n "$_pl_sep" ] && PL_SEP="$_pl_sep"
         # Determine per-theme background shades
-        _pl_theme=$(jq -r '.theme // "default"' "$statusline_config" 2>/dev/null)
+        _pl_theme=$(printf '%s' "$effective_config" | jq -r '.theme // "default"' 2>/dev/null)
         case "$_pl_theme" in
             pastel)
                 PL_BG_A='\033[48;2;58;61;69m'
@@ -322,8 +428,8 @@ if [ "$mod_context" = true ]; then
     [ "$filled" -lt 0 ] && filled=0
     empty=$((bar_width - filled))
     bar=""
-    for ((i=0; i<filled; i++)); do bar+="█"; done
-    for ((i=0; i<empty; i++)); do bar+="░"; done
+    for ((i=0; i<filled; i++)); do bar+="${ICON_BAR_FILL}"; done
+    for ((i=0; i<empty; i++)); do bar+="${ICON_BAR_EMPTY}"; done
 
     # Context-pressure alert based on how full the window is — consistent across the
     # 200k and 1M tiers (an absolute token threshold would false-alarm on 1M sessions).
@@ -331,13 +437,13 @@ if [ "$mod_context" = true ]; then
     ctx_warn=""
     if [ "${context_percent:-0}" -ge 90 ] 2>/dev/null; then
         ctx_color="$RED"
-        ctx_warn=" ${RED}⚠${NC}"
+        ctx_warn=" ${RED}${ICON_WARN}${NC}"
     fi
 
     # context_display: "percent" (default), "tokens", or "both"
     ctx_display=""
-    if [ -f "$statusline_config" ]; then
-        ctx_display=$(jq -r '.context_display // empty' "$statusline_config" 2>/dev/null)
+    if [ -n "$effective_config" ]; then
+        ctx_display=$(printf '%s' "$effective_config" | jq -r '.context_display // empty' 2>/dev/null)
     fi
 
     case "${ctx_display:-percent}" in
@@ -600,8 +706,8 @@ if [ "$mod_usage" = true ]; then
         [ "$u_filled" -gt "$u_bar_width" ] && u_filled=$u_bar_width
         local u_empty=$((u_bar_width - u_filled))
         local u_bar=""
-        for ((i=0; i<u_filled; i++)); do u_bar+="█"; done
-        for ((i=0; i<u_empty; i++)); do u_bar+="░"; done
+        for ((i=0; i<u_filled; i++)); do u_bar+="${ICON_BAR_FILL}"; done
+        for ((i=0; i<u_empty; i++)); do u_bar+="${ICON_BAR_EMPTY}"; done
 
         # Reset time for 5h window (prefer stdin rate_limits.five_hour.resets_at when present)
         local reset_str=""
@@ -614,14 +720,17 @@ if [ "$mod_usage" = true ]; then
             local reset_epoch=""
             # stdin resets_at is a unix epoch integer; cache file value is ISO date string
             case "$reset_at" in
-                [0-9]*)
-                    reset_epoch="$reset_at"
-                    ;;
-                *)
+                *[!0-9]*)
+                    # ISO date string (starts with a digit too — match on ANY
+                    # non-digit instead, so "2026-06-04T…" lands here)
                     local clean_date
                     clean_date=$(echo "$reset_at" | sed -E 's/\.[0-9]+//; s/\+00:00$/Z/')
                     reset_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
                         || date -u -d "$clean_date" +%s 2>/dev/null)
+                    ;;
+                *)
+                    # Pure digits — unix epoch
+                    reset_epoch="$reset_at"
                     ;;
             esac
             if [ -n "$reset_epoch" ]; then
@@ -789,8 +898,8 @@ if [ "$mod_weekly" = true ]; then
         [ "$w_filled" -gt "$w_bar_width" ] && w_filled=$w_bar_width
         w_empty=$((w_bar_width - w_filled))
         w_bar=""
-        for ((i=0; i<w_filled; i++)); do w_bar+="█"; done
-        for ((i=0; i<w_empty; i++)); do w_bar+="░"; done
+        for ((i=0; i<w_filled; i++)); do w_bar+="${ICON_BAR_FILL}"; done
+        for ((i=0; i<w_empty; i++)); do w_bar+="${ICON_BAR_EMPTY}"; done
         # Reset countdown
         w_reset_str=""
         case "$weekly_resets" in
@@ -817,8 +926,8 @@ if [ "$mod_weekly" = true ]; then
         fi
         # weekly_split mode: show per-model breakdown when available from OAuth cache
         w_split_mode=false
-        if [ -f "$statusline_config" ]; then
-            _ws=$(jq -r '.weekly_split // false' "$statusline_config" 2>/dev/null)
+        if [ -n "$effective_config" ]; then
+            _ws=$(printf '%s' "$effective_config" | jq -r '.weekly_split // false' 2>/dev/null)
             [ "$_ws" = "true" ] && w_split_mode=true
             unset _ws
         fi
@@ -941,7 +1050,7 @@ if [ "$mod_mode" = true ]; then
     m_fast=$(echo "$input" | jq -r '.fast_mode // false')
     m_effort=$(echo "$input" | jq -r '.effort.level // empty')
     m_parts=""
-    [ "$m_fast" = "true" ] && m_parts="⚡"
+    [ "$m_fast" = "true" ] && m_parts="${ICON_MODE_FAST}"
     [ -n "$m_effort" ] && m_parts="${m_parts}${m_parts:+ }${m_effort}"
     [ -n "$m_parts" ] && mode_info="${MAGENTA}${m_parts}${NC}"
 fi
@@ -1002,10 +1111,10 @@ if [ "$mod_git" = true ]; then
 
         # Append ahead/behind after branch (before closing paren)
         if [ -n "$ab_ahead" ]; then
-            git_info="${git_info} ${GREEN}↑${ab_ahead}${NC}"
+            git_info="${git_info} ${GREEN}${ICON_AHEAD}${ab_ahead}${NC}"
         fi
         if [ -n "$ab_behind" ]; then
-            git_info="${git_info} ${YELLOW}↓${ab_behind}${NC}"
+            git_info="${git_info} ${YELLOW}${ICON_BEHIND}${ab_behind}${NC}"
         fi
         git_info="${git_info}${YELLOW})${NC}"
     fi
@@ -1035,8 +1144,8 @@ if [ "$mod_pace" = true ]; then
 
                 # Read pace_display config key
                 pace_display_mode="delta"
-                if [ -f "$statusline_config" ]; then
-                    _pd=$(jq -r '.pace_display // empty' "$statusline_config" 2>/dev/null)
+                if [ -n "$effective_config" ]; then
+                    _pd=$(printf '%s' "$effective_config" | jq -r '.pace_display // empty' 2>/dev/null)
                     [ -n "$_pd" ] && pace_display_mode="$_pd"
                     unset _pd
                 fi
@@ -1050,7 +1159,7 @@ if [ "$mod_pace" = true ]; then
                         if [ "$rate_milli" -eq 0 ]; then
                             # Burn rate too slow for integer precision — by definition the
                             # quota outlasts the window. Show safe instead of hiding.
-                            pace_info="${GREEN}⌛ ok${NC}"
+                            pace_info="${GREEN}${ICON_ETA} ok${NC}"
                         fi
                         if [ "$rate_milli" -gt 0 ] 2>/dev/null; then
                             # exhaust_s = (100 - used_int) * 1000 / rate_milli
@@ -1063,14 +1172,14 @@ if [ "$mod_pace" = true ]; then
                                 if [ -n "$pace_eta_str" ]; then
                                     pace_until_exhaust=$(( pace_eta_epoch - pace_now ))
                                     if [ "$pace_until_exhaust" -le 3600 ] 2>/dev/null; then
-                                        pace_info="${RED}⌛ ~${pace_eta_str}${NC}"
+                                        pace_info="${RED}${ICON_ETA} ~${pace_eta_str}${NC}"
                                     else
-                                        pace_info="${YELLOW}⌛ ~${pace_eta_str}${NC}"
+                                        pace_info="${YELLOW}${ICON_ETA} ~${pace_eta_str}${NC}"
                                     fi
                                 fi
                             else
                                 # Safe — will not exhaust before reset
-                                pace_info="${GREEN}⌛ ok${NC}"
+                                pace_info="${GREEN}${ICON_ETA} ok${NC}"
                             fi
                         fi
                     fi
@@ -1175,10 +1284,10 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
             if [ "$mod_tools" = true ]; then
                 if [ "${_pt_count:-0}" -ge 1 ] 2>/dev/null; then
                     if [ "${_pt_count:-0}" -eq 1 ]; then
-                        tools_info="${CYAN}⚒ ${_pt_first}${NC}"
+                        tools_info="${CYAN}${ICON_TOOLS} ${_pt_first}${NC}"
                     else
                         _pt_others=$(( _pt_count - 1 ))
-                        tools_info="${CYAN}⚒ ${_pt_first} +${_pt_others}${NC}"
+                        tools_info="${CYAN}${ICON_TOOLS} ${_pt_first} +${_pt_others}${NC}"
                     fi
                 fi
             fi
@@ -1186,9 +1295,9 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
             if [ "$mod_agents" = true ]; then
                 if [ "${_pa_count:-0}" -ge 1 ] 2>/dev/null; then
                     if [ "${_pa_count:-0}" -eq 1 ]; then
-                        agents_info="${MAGENTA}◉ ${_pa_first}${NC}"
+                        agents_info="${MAGENTA}${ICON_AGENTS} ${_pa_first}${NC}"
                     else
-                        agents_info="${MAGENTA}◉ ${_pa_count} agents${NC}"
+                        agents_info="${MAGENTA}${ICON_AGENTS} ${_pa_count} agents${NC}"
                     fi
                 fi
             fi
@@ -1196,9 +1305,9 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
             if [ "$mod_todos" = true ]; then
                 if [ "${_td_done:-0}" -ge 0 ] 2>/dev/null && [ "${_td_total:-0}" -gt 0 ] 2>/dev/null; then
                     if [ "${_td_done}" -eq "${_td_total}" ] 2>/dev/null; then
-                        todos_info="${GREEN}☑ ${_td_done}/${_td_total}${NC}"
+                        todos_info="${GREEN}${ICON_TODOS} ${_td_done}/${_td_total}${NC}"
                     else
-                        todos_info="${CYAN}☑ ${_td_done}/${_td_total}${NC}"
+                        todos_info="${CYAN}${ICON_TODOS} ${_td_done}/${_td_total}${NC}"
                     fi
                 fi
             fi
@@ -1243,8 +1352,8 @@ if [ "$mod_daily" = true ]; then
         }')
         # Apply budget coloring if daily_budget configured
         _d_budget=""
-        if [ -f "$statusline_config" ]; then
-            _d_budget=$(jq -r '.daily_budget // empty' "$statusline_config" 2>/dev/null)
+        if [ -n "$effective_config" ]; then
+            _d_budget=$(printf '%s' "$effective_config" | jq -r '.daily_budget // empty' 2>/dev/null)
         fi
         if [ -n "$_d_budget" ] && [ "$(printf '%s' "$_d_budget" | awk '{print ($1+0>0)?1:0}')" = "1" ]; then
             # Compute percentage: total / budget * 100
@@ -1277,7 +1386,7 @@ if [ "$mod_compactions" = true ]; then
     if [ -n "$_comp_transcript" ] && [ -f "$_comp_transcript" ]; then
         _comp_count=$(grep -c '"subtype":"compact_boundary"' "$_comp_transcript" 2>/dev/null || echo 0)
         if [ "${_comp_count:-0}" -gt 0 ] 2>/dev/null; then
-            compactions_info="${GRAY}↯ ${_comp_count}${NC}"
+            compactions_info="${GRAY}${ICON_COMPACTIONS} ${_comp_count}${NC}"
         fi
     fi
 fi
@@ -1346,7 +1455,7 @@ if [ "$mod_tokens" = true ]; then
         }
         _tok_in_str=$(_fmtk "$_tok_total_in")
         _tok_out_str=$(_fmtk "$_tok_total_out")
-        tokens_info="${GRAY}⇅ ${_tok_in_str}/${_tok_out_str}${NC}"
+        tokens_info="${GRAY}${ICON_TOKENS} ${_tok_in_str}/${_tok_out_str}${NC}"
     fi
 fi
 
@@ -1388,6 +1497,54 @@ route() {  # $1 = module name, $2 = bare chunk
         fi
     fi
 }
+
+# --- Smart visibility suppression ---
+# When smart=true, hide modules whose current value isn't notable.
+if [ "$smart_mode" = true ]; then
+    # cost: hide when < $1.00
+    if [ -n "$cost_info" ]; then
+        _sv_cost=$(echo "$input" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null)
+        _sv_cost_int=$(printf '%.0f' "${_sv_cost:-0}" 2>/dev/null || echo 0)
+        # compare as awk since it's a float
+        _sv_cost_hide=$(printf '%s' "${_sv_cost:-0}" | awk '{print ($1+0 < 1.0) ? 1 : 0}')
+        [ "$_sv_cost_hide" = "1" ] && cost_info=""
+        unset _sv_cost _sv_cost_int _sv_cost_hide
+    fi
+    # cache: only show when remaining < 60s (or cold — "cache cold")
+    if [ -n "$cache_info" ]; then
+        # cache_info shows cold or "cache Xm Ys" / "cache Xs"
+        # Hide when time remaining >= 60s (i.e., contains "m" in a pattern like "Xm")
+        # We detect "cold" (show it) and <60s (show it); >=60s (hide it)
+        # Match on ANSI-stripped text — the raw string contains color codes like
+        # \033[0;32m whose "2m" would false-match the minutes pattern.
+        _sv_cache_plain=$(printf '%s' "$cache_info" | sed -E 's/\\033\[[0-9;]*m//g')
+        case "$_sv_cache_plain" in
+            *cold*)  ;;  # keep — cold is notable
+            *[0-9]m*) cache_info="" ;;  # "Xm Ys" form means >= 60s — hide
+        esac
+        unset _sv_cache_plain
+    fi
+    # pace (delta mode): only show when delta < 0 (burning fast)
+    if [ -n "$pace_info" ]; then
+        # In delta mode pace_info contains "pace +N%" (ahead) or "pace -N%" (behind) or "pace N%"
+        # In ETA mode, always show (it's inherently smart)
+        # Hide if it contains "pace +" (positive delta = ahead of pace = not notable)
+        case "$pace_info" in
+            *"pace +"*) pace_info="" ;;
+        esac
+    fi
+    # context: only show when >= 50%
+    if [ -n "$context_info" ]; then
+        [ "${context_percent:-0}" -lt 50 ] 2>/dev/null && context_info=""
+    fi
+    # duration: only show when >= 1h
+    if [ -n "$duration_info" ]; then
+        _sv_dur_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // 0' 2>/dev/null)
+        _sv_dur_s=$(( ${_sv_dur_ms:-0} / 1000 ))
+        [ "$_sv_dur_s" -lt 3600 ] 2>/dev/null && duration_info=""
+        unset _sv_dur_ms _sv_dur_s
+    fi
+fi
 
 [ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}"
 [ "$mod_model" = true ]     && route model "${CYAN}${model_name}${NC}"
@@ -1469,8 +1626,77 @@ if [ "$PL_ON" = true ]; then
     else
         printf '%b\n' "$line1"
     fi
-elif [ -n "$line2" ]; then
-    printf '%b\n%b\n' "$line1" "$line2"
 else
-    echo -e "$line1"
+    # --- Responsive width ---
+    # When responsive=true and COLUMNS is numeric, drop lowest-priority modules from
+    # line1 until the visible length fits. Powerline mode is not supported (skipped above).
+    # Priority order: drop first -> last (codegraph first, directory/model/context last).
+    _resp_priority="codegraph rtk lines duration cost speed vim weekly daily tokens compactions pr agent mode cache pace tools agents todos git usage context model directory"
+    if [ "$responsive_mode" = true ] && [ -n "${COLUMNS:-}" ] && [ "${COLUMNS:-0}" -gt 0 ] 2>/dev/null; then
+        # Compute visible length: strip ANSI CSI sequences (\033[...m) and OSC sequences (\033]...BEL),
+        # then count CHARACTERS (wc -m) — bar glyphs like █ are 3 bytes but 1 column.
+        _visible_len() {
+            local _stripped
+            _stripped=$(printf '%b' "$1" | sed 's/\x1b\[[0-9;]*[mKHJABCDGsufhl]//g; s/\x1b][^\x07]*\x07//g')
+            printf '%s' "$_stripped" | wc -m | tr -d ' '
+        }
+        _line1_len=$(_visible_len "$line1")
+        if [ "${_line1_len:-0}" -gt "${COLUMNS:-0}" ] 2>/dev/null; then
+            for _drop_mod in $_resp_priority; do
+                [ "${_line1_len:-0}" -le "${COLUMNS:-0}" ] 2>/dev/null && break
+                # Blank the module's info variable and recompose line1 from scratch
+                case "$_drop_mod" in
+                    codegraph)  cg_info="" ;;
+                    rtk)        rtk_info="" ;;
+                    lines)      lines_info="" ;;
+                    duration)   duration_info="" ;;
+                    cost)       cost_info="" ;;
+                    speed)      speed_info="" ;;
+                    vim)        vim_info="" ;;
+                    weekly)     weekly_info="" ;;
+                    daily)      daily_info="" ;;
+                    tokens)     tokens_info="" ;;
+                    compactions) compactions_info="" ;;
+                    pr)         pr_info="" ;;
+                    agent)      agent_info="" ;;
+                    mode)       mode_info="" ;;
+                    cache)      cache_info="" ;;
+                    pace)       pace_info="" ;;
+                    tools)      tools_info="" ;;
+                    agents)     agents_info="" ;;
+                    todos)      todos_info="" ;;
+                    git)        git_info="" ;;
+                    usage)      usage_info="" ;;
+                    context)    context_info="" ;;
+                    model)      mod_model=false ;;
+                    directory)  mod_directory=false ;;
+                esac
+                # Recompose line1
+                line1=""
+                _pl_count1=0
+                [ "$mod_directory" = true ] && [ -n "$dir_name" ] && line1="${line1:+$line1$SEP}${BLUE}${dir_name}${NC}"
+                [ "$mod_model" = true ] && [ -n "$model_name" ] && line1="${line1:+$line1$SEP}${CYAN}${model_name}${NC}"
+                for _rc in context_info usage_info rtk_info mode_info git_info lines_info cg_info cost_info duration_info speed_info vim_info agent_info pr_info weekly_info pace_info cache_info tools_info agents_info todos_info daily_info compactions_info tokens_info; do
+                    _rc_val="${!_rc}"
+                    if [ -n "$_rc_val" ]; then
+                        # Only route to line1 (not line2)
+                        _rc_modname="${_rc%_info}"
+                        # check if this module is assigned to line2
+                        case " $line2_set " in
+                            *" ${_rc_modname} "*) ;;  # skip — it's on line2
+                            *) line1="${line1:+$line1$SEP}${_rc_val}" ;;
+                        esac
+                    fi
+                done
+                _line1_len=$(_visible_len "$line1")
+            done
+        fi
+        unset _resp_priority _drop_mod _rc _rc_val _rc_modname _line1_len
+    fi
+
+    if [ -n "$line2" ]; then
+        printf '%b\n%b\n' "$line1" "$line2"
+    else
+        echo -e "$line1"
+    fi
 fi

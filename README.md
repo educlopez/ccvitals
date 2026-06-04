@@ -38,6 +38,15 @@ To reconfigure modules or switch to a two-line layout later:
 /ccvitals:configure
 ```
 
+### Homebrew
+
+```bash
+brew install educlopez/tap/ccvitals
+ccvitals          # interactive installer (or: ccvitals --all)
+```
+
+After `brew upgrade ccvitals`, run `ccvitals --force` once to relink. Remove with `ccvitals uninstall`.
+
 ### Manual install (alternative)
 
 If you prefer a git-clone workflow (symlinked install, instant `git pull` updates):
@@ -221,6 +230,18 @@ Switch theme by running `/ccvitals:configure` (plugin install) or editing the co
 }
 ```
 
+## Per-project config
+
+Create a `.ccvitals.json` file at your project's workspace root to override any global config keys for that project. Any key present in the project file wins; absent keys keep their global values.
+
+```json
+{ "theme": "dracula", "smart": true, "modules": ["directory", "model", "context", "git"] }
+```
+
+Supported keys: `modules`, `modules_line2`, `theme`, `colors`, `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`, `weekly_split`, `smart`, `icons`, `responsive`.
+
+The merge uses `jq -s '.[0] * .[1]'` (global * project). Values are only consumed as JSON data — never executed.
+
 ## Powerline mode
 
 Set `"powerline": true` in `~/.claude/.statusline-config.json` to render each module as a shaded segment separated by the Nerd Font arrow glyph (U+E0B0, ``) instead of ` | `:
@@ -333,6 +354,48 @@ GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%.
 ```
 
 When `true` and the OAuth cache contains `seven_day_opus`/`seven_day_sonnet` utilization, displays `7d O:42% S:18%` instead of the single progress bar. Falls back to the bar when per-model data is unavailable (note: requires the OAuth fetch path to have run at least once).
+
+### `smart` — hide modules when their value isn't notable
+
+```json
+{ "smart": true }
+```
+
+When `true`, modules only appear when their value is notable. Default: `false` (behavior identical to before).
+
+| Module | Visible when |
+|--------|-------------|
+| `cost` | ≥ $1.00 |
+| `cache` | remaining < 60s, or cold |
+| `pace` (delta mode) | delta < 0 (burning fast) |
+| `context` | ≥ 50% |
+| `duration` | ≥ 1 hour |
+
+All other modules are unaffected. ETA mode (`pace_display: "eta"`) always shows when enabled.
+
+### `icons` — icon set
+
+```json
+{ "icons": "ascii" }
+```
+
+| Value | Description |
+|-------|-------------|
+| `"unicode"` (default) | Current glyphs: ⚒ ◉ ☑ ⌛ ⇅ ↯ ⚡ ⚠ █░ ↑↓ — byte-identical to no-config |
+| `"ascii"` | Plain ASCII: `T:` `A:` `[x]` `eta` `io` `cmp` `!` `(!)` `#-` `+/-` |
+| `"nerd"` | Nerd Font icons (requires a Nerd Font in your terminal) |
+
+### `responsive` — trim line 1 to fit terminal width
+
+```json
+{ "responsive": true }
+```
+
+When `true` and `COLUMNS` is set, ccvitals drops the lowest-priority modules from line 1 until the visible output fits within the terminal width. Priority order (dropped first → last):
+
+`codegraph` → `rtk` → `lines` → `duration` → `cost` → `speed` → `vim` → `weekly` → `daily` → `tokens` → `compactions` → `pr` → `agent` → `mode` → `cache` → `pace` → `tools` → `agents` → `todos` → `git` → `usage` → `context` → `model` → `directory`
+
+> **Note:** Powerline mode + responsive is not yet supported — responsive is silently skipped when `powerline: true`.
 
 ## Requirements
 

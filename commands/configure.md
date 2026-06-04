@@ -160,7 +160,52 @@ Use AskUserQuestion to ask:
 
 Save as `WEEKLY_SPLIT=true` if yes.
 
-### 5c. Ask about powerline mode (optional)
+### 5c-i. Ask about smart visibility (optional)
+
+Use AskUserQuestion to ask:
+
+> Do you want smart visibility mode? (y/n, default: n)
+>
+> When enabled, modules only appear when their value is notable:
+> - **cost** — only when ≥ $1.00
+> - **cache** — only when remaining < 60s (or cold)
+> - **pace** (delta mode) — only when delta < 0 (burning fast)
+> - **context** — only when ≥ 50%
+> - **duration** — only when ≥ 1h
+>
+> All other modules are unaffected. When disabled (default), behavior is identical to today.
+
+Save as `SMART=true` if yes.
+
+### 5c-ii. Ask about icon set (optional)
+
+Use AskUserQuestion to ask:
+
+> Which icon set would you like? (leave blank for default)
+>
+> - **unicode** (default) — current glyphs: ⚒ ◉ ☑ ⌛ ⇅ ↯ ⚡ ⚠ █░ ↑↓
+> - **ascii** — plain ASCII: T: A: [x] eta io cmp ! (!) #- +/-
+> - **nerd** — Nerd Font icons (requires a Nerd Font in your terminal)
+>
+> Enter `unicode`, `ascii`, or `nerd` (or press Enter to keep current).
+
+Save as `ICONS`. Only write to config if not blank.
+
+### 5c-iii. Ask about responsive width (optional)
+
+Use AskUserQuestion to ask:
+
+> Do you want responsive width? (y/n, default: n)
+>
+> When enabled and `COLUMNS` is set, ccvitals drops low-priority modules from
+> line 1 until the rendered output fits within the terminal width.
+> Lowest-priority modules are dropped first (codegraph, rtk, lines, duration…).
+>
+> **Note:** Powerline mode + responsive is not yet supported (skipped silently).
+
+Save as `RESPONSIVE=true` if yes.
+
+### 5d. Ask about powerline mode (optional)
 
 Use AskUserQuestion to ask:
 
@@ -184,6 +229,19 @@ If **yes**, ask:
 Save as `POWERLINE=true` and `POWERLINE_SEP` (empty string = use default glyph).
 
 ### 6. Write `~/.claude/.statusline-config.json`
+
+> **Per-project config (`.ccvitals.json`):** You can also create a `.ccvitals.json` file at
+> any workspace root (project directory). Any key present in the project file overrides the
+> global config for that project. Supported keys: `modules`, `modules_line2`, `theme`, `colors`,
+> `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`,
+> `weekly_split`, `smart`, `icons`, `responsive`.
+>
+> Example `.ccvitals.json` that switches theme and enables smart mode for one project:
+> ```json
+> { "theme": "dracula", "smart": true }
+> ```
+>
+> The project file is never executed — values are only used as JSON data.
 
 Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`. Preserve the existing `modules` and `modules_line2` keys; add or update the `theme` key (and optional `colors` key for custom). If `CONTEXT_DISPLAY` was chosen and is not `"percent"`, also set `"context_display"` in the config.
 
@@ -226,6 +284,9 @@ The exact rule (matching install.sh behavior):
 - `colors` = only present when theme is `"custom"`
 - `powerline` = `true` only when the user opted in; omit entirely when not enabled
 - `powerline_separator` = only present when a custom separator was given
+- `smart` = `true` only when the user opted in; omit entirely when not enabled
+- `icons` = `"ascii"` or `"nerd"` when the user opted in; omit entirely for unicode default
+- `responsive` = `true` only when the user opted in; omit entirely when not enabled
 
 Build and write using Bash. Read the current config first and merge with jq to preserve all existing keys:
 
@@ -276,5 +337,10 @@ Tell the user:
 > Line 2 modules: [list, or "none (single-line layout)"]
 > Theme: [chosen theme name]
 > Powerline: [enabled / disabled]
+> Smart visibility: [enabled / disabled]
+> Icons: [unicode / ascii / nerd]
+> Responsive width: [enabled / disabled]
+>
+> Per-project override: create `.ccvitals.json` in any project root to override individual keys.
 >
 > Changes take effect at next session start (restart Claude Code).

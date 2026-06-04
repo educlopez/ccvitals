@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-06-04
+
+### Added
+
+- **Homebrew tap** — `brew install educlopez/tap/ccvitals`; the `ccvitals` wrapper runs the bundled installer (`ccvitals --all`, `ccvitals uninstall`)
+- **Per-project config** (`.ccvitals.json`) — place a `.ccvitals.json` at any workspace root to deep-override the global config for that project. Any key present in the project file wins; absent keys keep their global values. Merge is done with `jq -s '.[0] * .[1]'` into a single `effective_config` variable; all config reads now use that variable (refactor eliminates all scattered `jq ... "$statusline_config"` calls). Values are only consumed as JSON data, never executed.
+- **Smart visibility** (`"smart": true`, default `false`) — modules only appear when their value is notable: `cost` when ≥ $1.00; `cache` when remaining < 60s or cold; `pace` (delta mode) when delta < 0; `context` when ≥ 50%; `duration` when ≥ 1h. All other modules unaffected. `false` behavior is byte-identical to before.
+- **Icon set** (`"icons"`: `"unicode"` / `"ascii"` / `"nerd"`) — all icon glyphs are resolved into variables at startup. `unicode` (default) is byte-identical to the previous behavior. `ascii` replaces unicode glyphs with plain-ASCII equivalents (⚒→T:, ◉→A:, ☑→[x], ⌛→eta, ⇅→io, ↯→cmp, ⚡→!, ⚠→(!), █░→#-). `nerd` uses Nerd Font icons.
+- **Responsive width** (`"responsive": true`, default `false`) — when `COLUMNS` is set and numeric, ccvitals drops lowest-priority modules from line 1 until the visible length fits. Priority: codegraph, rtk, lines, duration, cost, speed, vim, weekly, daily, tokens, compactions, pr, agent, mode, cache, pace, tools, agents, todos, git, usage, context, model, directory. Only applies to line 1 in non-powerline mode; powerline + responsive is silently skipped.
+- `test/statusline.bats`: 17 new tests covering per-project override, merge semantics, invalid project JSON, smart hide/show for cost/context, icons ascii rendering, responsive no-crash, and COLUMNS-generous survival
+
+### Fixed
+
+- Smart visibility: the cache-hide pattern matched the "2m" inside ANSI color codes (e.g. `\033[0;32m`), blanking the cache module unconditionally — now matches on ANSI-stripped text
+- Responsive width: visible length now counts characters (`wc -m`) instead of bytes — multi-byte bar glyphs (`█`) were over-counted 3×, dropping modules far too aggressively
+- A project-only `.ccvitals.json` now works even when no global config exists
+- Invalid JSON in the global config prints a one-line stderr warning instead of silently disabling all configuration
+- `usage` reset timestamp: ISO date strings (which also start with a digit) were matched by the epoch branch and fed into integer arithmetic, printing a `value too great for base` error to stderr — the case now matches on any-non-digit first
+- Responsive recompose uses bash indirect expansion (`${!var}`) instead of `eval`
+
 ## [1.9.0] - 2026-06-04
 
 ### Added
@@ -163,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/educlopez/ccvitals/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/educlopez/ccvitals/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/educlopez/ccvitals/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/educlopez/ccvitals/compare/v1.7.0...v1.8.0
