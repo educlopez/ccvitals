@@ -6,9 +6,25 @@ A real-time statusline for [Claude Code](https://docs.anthropic.com/en/docs/clau
 
 ## Install
 
-Clone the repo and run the installer. It **symlinks** `statusline.sh` into your
-Claude config dir, so updating is just `git pull` — and you can keep multiple
-machines in sync through the repo.
+Install ccvitals as a Claude Code plugin — no cloning or manual config required:
+
+```
+/plugin marketplace add educlopez/ccvitals
+/plugin install ccvitals@ccvitals
+/ccvitals:setup
+```
+
+`/ccvitals:setup` asks which modules you want, writes the config, and wires up `settings.json` automatically. Then restart Claude Code.
+
+To reconfigure modules or switch to a two-line layout later:
+
+```
+/ccvitals:configure
+```
+
+### Manual install (alternative)
+
+If you prefer a git-clone workflow (symlinked install, instant `git pull` updates):
 
 ```bash
 git clone https://github.com/educlopez/ccvitals.git
@@ -32,7 +48,7 @@ ccvitals — Choose your modules:
 
 Then restart Claude Code.
 
-### Install options
+#### Install options
 
 ```bash
 # Force reinstall (relink script + overwrite settings.json statusLine key)
@@ -55,7 +71,7 @@ The interactive installer also asks, after you pick your modules, which of
 them should drop to a second line (enter their numbers, or press Enter for a
 single line).
 
-### Update
+#### Update
 
 ```bash
 cd ccvitals && git pull
@@ -64,9 +80,9 @@ cd ccvitals && git pull
 Because the script is symlinked, `git pull` updates the statusline instantly —
 no reinstall needed. Restart Claude Code to see the new version.
 
-### Change modules later
+#### Change modules later
 
-Re-run the installer with `--force`, or edit `~/.claude/.statusline-config.json` directly:
+Run `/ccvitals:configure` (plugin install) or re-run the installer with `--force`. You can also edit `~/.claude/.statusline-config.json` directly:
 
 ```json
 {

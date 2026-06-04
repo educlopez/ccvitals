@@ -1,0 +1,13 @@
+{
+  "name": "ccvitals",
+  "owner": { "name": "Eduardo Calvo", "url": "https://github.com/educlopez" },
+  "plugins": [
+    {
+      "name": "ccvitals",
+      "source": "./",
+      "description": "The prettiest statusline for Claude Code — pure bash, never blocks your prompt.",
+      "category": "monitoring",
+      "tags": ["statusline", "hud", "bash", "context", "usage"]
+    }
+  ]
+}

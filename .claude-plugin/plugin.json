@@ -1,0 +1,12 @@
+{
+  "name": "ccvitals",
+  "displayName": "ccvitals",
+  "version": "1.3.0",
+  "description": "The prettiest statusline for Claude Code — pure bash, never blocks your prompt. Usage quota, context window, git status & more.",
+  "author": { "name": "Eduardo Calvo", "url": "https://github.com/educlopez" },
+  "homepage": "https://github.com/educlopez/ccvitals",
+  "repository": "https://github.com/educlopez/ccvitals",
+  "license": "MIT",
+  "keywords": ["statusline", "hud", "monitoring", "context", "bash"],
+  "commands": ["./commands/setup.md", "./commands/configure.md"]
+}
