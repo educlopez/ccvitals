@@ -1,8 +1,24 @@
 # ccvitals
 
-A real-time statusline for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that shows usage quota, context window, git status, and more — right in your terminal.
+[![CI](https://github.com/educlopez/ccvitals/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/educlopez/ccvitals/actions/workflows/shellcheck.yml)
+[![Release](https://img.shields.io/github/v/release/educlopez/ccvitals)](https://github.com/educlopez/ccvitals/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Pure bash](https://img.shields.io/badge/pure-bash-4EAA25?logo=gnubash&logoColor=white)
 
-![ccvitals screenshot](assets/screenshot.png)
+The vital signs of your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session — usage quota, context window, cost, git status and more, right in your terminal. Pure bash, zero Node, never blocks your prompt.
+
+![ccvitals demo](assets/demo.gif)
+
+## Why ccvitals
+
+| | ccvitals | Node-based statuslines |
+|---|---|---|
+| Runtime | **pure bash + jq** | Node.js ≥ 14–18 |
+| Render blocking | **never** — stale-while-revalidate cache, background refresh | varies |
+| Rate-limit data | stdin first (zero-latency), OAuth API fallback | usually API calls |
+| 1M context tier | **detected** — context % stays accurate past 200k | mostly assumes 200k |
+| Two-line layout | yes | rare |
+| Install | plugin marketplace or git clone + symlink (`git pull` = update) | npx / npm |
 
 ## Install
 
@@ -119,7 +135,7 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `context` | Context window progress bar + percentage; turns red with a `⚠` when the context is large (≥150k tokens or over 200k) — a nudge to `/compact`, since long context is expensive even when cached |
 | `usage` | 5h quota bar, reset timer, plan badge (Pro/Max/Team), 7d warning |
 | `git` | Branch name, changed files count, lines added/removed |
-| `rtk` | [RTK](https://github.com/) token-savings % — e.g. `rtk 86.8%↓` (needs the `rtk` CLI) |
+| `rtk` | RTK token-savings % — e.g. `rtk 86.8%↓` (needs the `rtk` CLI) |
 | `codegraph` | CodeGraph index size + stale marker — e.g. `⬡ 11.7k ⚠3` (needs the `codegraph` CLI; only shows in indexed projects) |
 | `lines` | Lines added/removed this session — e.g. `+264 -195` (cumulative agent edits, distinct from the git working-tree diff) |
 | `mode` | Reasoning effort level + fast-mode flag — e.g. `⚡ xhigh` |
@@ -172,7 +188,7 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 
 1. Claude Code pipes JSON context (model, workspace, context window) to the script via stdin
 2. The script reads `~/.claude/.statusline-config.json` to know which modules are enabled
-3. For the usage module: reads OAuth credentials to fetch quota data from the Anthropic API
+3. For the usage/weekly modules: prefers `rate_limits` data straight from Claude Code's stdin JSON (zero-latency, no network). When absent, falls back to fetching quota from the Anthropic API with OAuth credentials:
    - **macOS (Claude Code 2.x+):** reads from the macOS Keychain using profile-specific service names
    - **Fallback:** reads from `~/.claude/.credentials.json` (older Claude Code versions or non-macOS)
 4. Usage data is cached locally (`~/.claude/.usage-cache/usage.json`) for 60 seconds to avoid blocking the statusline
