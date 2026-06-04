@@ -758,7 +758,7 @@ if [ "$mod_pr" = true ]; then
         pr_text="${CYAN}PR #${pr_num}${NC}"
         # OSC 8 hyperlink when URL present
         if [ -n "$pr_url" ]; then
-            pr_text="\033]8;;${pr_url}\033\\${CYAN}PR #${pr_num}${NC}\033]8;;\033\\"
+            pr_text="\033]8;;${pr_url}\007${CYAN}PR #${pr_num}${NC}\033]8;;\007"
         fi
         pr_info="$pr_text"
         [ -n "$pr_review" ] && pr_info="${pr_info} ${GRAY}${pr_review}${NC}"
@@ -930,11 +930,11 @@ if [ "$mod_git" = true ]; then
                 git@github.com:*|git@gitlab.com:*)
                     _host=$(printf '%s' "$origin_url" | sed 's/git@\([^:]*\):.*/\1/')
                     _path=$(printf '%s' "$origin_url" | sed 's/git@[^:]*://; s/\.git$//')
-                    branch_text="\033]8;;https://${_host}/${_path}/tree/${branch}\033\\${YELLOW}${branch}${NC}\033]8;;\033\\"
+                    branch_text="\033]8;;https://${_host}/${_path}/tree/${branch}\007${YELLOW}${branch}${NC}\033]8;;\007"
                     ;;
                 https://github.com/*|https://gitlab.com/*)
                     _url=$(printf '%s' "$origin_url" | sed 's/\.git$//')
-                    branch_text="\033]8;;${_url}/tree/${branch}\033\\${YELLOW}${branch}${NC}\033]8;;\033\\"
+                    branch_text="\033]8;;${_url}/tree/${branch}\007${YELLOW}${branch}${NC}\033]8;;\007"
                     ;;
             esac
         fi

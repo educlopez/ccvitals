@@ -782,6 +782,23 @@ setup() {
     [[ "$clean" == *"PR #42"* ]]
 }
 
+@test "statusline: OSC 8 framing never leaks literal escape text (regression)" {
+    # Bug: ST terminator (\033\\) written in double quotes collapsed \\ at assignment,
+    # then echo -e paired the orphan backslash with the next SGR's backslash and
+    # printed '033[0;33m' as visible text after the branch link. BEL framing fixes it.
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"pr":{"number":42,"url":"https://github.com/example/repo/pull/42"}}'
+    echo '{"modules":["pr"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # After removing real ESC bytes, no literal "033[" text may remain —
+    # that would mean an escape sequence leaked as visible characters.
+    local visible
+    visible=$(printf '%s' "$output" | LC_ALL=C tr -d '\033')
+    [[ "$visible" != *"033["* ]]
+    # OSC 8 must be BEL-terminated: \033]8;;URL\a
+    [[ "$output" == *$'\033]8;;https://github.com/example/repo/pull/42\a'* ]]
+}
+
 # ─── Theme system: exact first-color checks per preset ───
 
 @test "statusline: tokyo-night theme RED is #f7768e (247;118;142)" {

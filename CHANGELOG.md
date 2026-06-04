@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-04
+
+### Fixed
+
+- **OSC 8 hyperlinks leaked literal escape text** — the ST terminator (`\033\\`) written inside double quotes collapsed its backslashes at assignment time, so `echo -e` paired the orphan backslash with the next color code's backslash and rendered visible `033[0;33m` garbage after the branch/PR link. All OSC 8 sequences now use the BEL terminator (`\007`), which avoids the backslash ambiguity entirely and is equally supported by terminals
+- Regression test: visible output (real ESC bytes stripped) must never contain literal `033[` text; OSC 8 must be BEL-framed
+
 ## [1.8.0] - 2026-06-04
 
 ### Added
@@ -137,7 +144,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/educlopez/ccvitals/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/educlopez/ccvitals/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/educlopez/ccvitals/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/educlopez/ccvitals/compare/v1.5.0...v1.6.0
