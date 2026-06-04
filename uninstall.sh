@@ -4,7 +4,7 @@ set -euo pipefail
 # ccvitals Uninstaller
 # https://github.com/educlopez/ccvitals
 
-STATUSLINE_VERSION="1.6.0"
+STATUSLINE_VERSION="1.7.0"
 
 # Colors
 GREEN='\033[0;32m'
