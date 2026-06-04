@@ -52,7 +52,7 @@ setup() {
 @test "install: --version prints version and exits 0" {
     run bash "$INSTALLER" --version
     [ "$status" -eq 0 ]
-    [[ "$output" == *"claude-statusline v"* ]]
+    [[ "$output" == *"ccvitals v"* ]]
 }
 
 @test "install: --help takes priority over other flags" {

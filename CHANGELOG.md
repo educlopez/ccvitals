@@ -65,5 +65,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/claude-statusline/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/educlopez/claude-statusline/releases/tag/v1.0.0
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/educlopez/ccvitals/releases/tag/v1.0.0

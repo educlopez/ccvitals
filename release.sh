@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Statusline — Release Script
-# https://github.com/educlopez/claude-statusline
+# ccvitals — Release Script
+# https://github.com/educlopez/ccvitals
 #
 # Usage:
 #   ./release.sh 1.2.0          Create release v1.2.0 (commit + tag, no push)

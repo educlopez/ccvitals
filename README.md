@@ -1,8 +1,8 @@
-# claude-statusline
+# ccvitals
 
 A real-time statusline for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that shows usage quota, context window, git status, and more — right in your terminal.
 
-![claude-statusline screenshot](assets/screenshot.png)
+![ccvitals screenshot](assets/screenshot.png)
 
 ## Install
 
@@ -11,15 +11,15 @@ Claude config dir, so updating is just `git pull` — and you can keep multiple
 machines in sync through the repo.
 
 ```bash
-git clone https://github.com/educlopez/claude-statusline.git
-cd claude-statusline
+git clone https://github.com/educlopez/ccvitals.git
+cd ccvitals
 ./install.sh
 ```
 
 The installer shows an interactive menu where you pick which modules to enable:
 
 ```
-Claude Statusline — Choose your modules:
+ccvitals — Choose your modules:
 
   [x] 1) Directory      my-project
   [x] 2) Model          Opus 4.6
@@ -58,7 +58,7 @@ single line).
 ### Update
 
 ```bash
-cd claude-statusline && git pull
+cd ccvitals && git pull
 ```
 
 Because the script is symlinked, `git pull` updates the statusline instantly —

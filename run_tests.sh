@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Statusline — Test Runner
+# ccvitals — Test Runner
 # Runs the bats test suite with automatic helper setup.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

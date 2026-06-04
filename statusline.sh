@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Claude Code Statusline — Real-time usage, context, and git info
-# https://github.com/educlopez/claude-statusline
+# https://github.com/educlopez/ccvitals
 
 STATUSLINE_VERSION="1.3.0"
 
@@ -221,7 +221,7 @@ if [ "$mod_usage" = true ]; then
         response=$(curl -s --max-time 10 -D "$tmp_headers" \
             -H "Authorization: Bearer $access_token" \
             -H "anthropic-beta: oauth-2025-04-20" \
-            -H "User-Agent: claude-statusline/$STATUSLINE_VERSION" \
+            -H "User-Agent: ccvitals/$STATUSLINE_VERSION" \
             "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
 
         # Check for rate limit or failure

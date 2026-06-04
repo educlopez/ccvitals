@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Statusline Uninstaller
-# https://github.com/educlopez/claude-statusline
+# ccvitals Uninstaller
+# https://github.com/educlopez/ccvitals
 
 STATUSLINE_VERSION="1.3.0"
 
@@ -65,7 +65,7 @@ fi
 
 # --- Done ---
 echo ""
-echo -e "${GREEN}Claude Statusline uninstalled successfully!${NC}"
+echo -e "${GREEN}ccvitals uninstalled successfully!${NC}"
 echo ""
 echo "  Restart Claude Code to apply changes."
 echo ""

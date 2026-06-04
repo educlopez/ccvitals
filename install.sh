@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Claude Statusline Installer (link mode)
-# https://github.com/educlopez/claude-statusline
+# ccvitals Installer (link mode)
+# https://github.com/educlopez/ccvitals
 #
 # Run this from a cloned copy of the repo — it does NOT download anything.
 # It symlinks the repo's statusline.sh into your Claude config dir so that
 # `git pull` updates the statusline instantly (ideal for syncing machines).
 #
 # Usage:
-#   git clone https://github.com/educlopez/claude-statusline.git
-#   cd claude-statusline
+#   git clone https://github.com/educlopez/ccvitals.git
+#   cd ccvitals
 #   ./install.sh                       # interactive module menu
 #   ./install.sh --all                 # all modules, no menu
 #   ./install.sh --modules=model,git   # specific modules
@@ -123,14 +123,14 @@ get_mod_name() {
 
 show_help() {
     cat <<HELPEOF
-Claude Statusline v${STATUSLINE_VERSION} — A customizable statusline for Claude Code
+ccvitals v${STATUSLINE_VERSION} — A customizable statusline for Claude Code
 
 This installer runs from a cloned copy of the repo and symlinks
 statusline.sh into your Claude config dir. Update later with: git pull
 
 Usage:
-  git clone https://github.com/educlopez/claude-statusline.git
-  cd claude-statusline
+  git clone https://github.com/educlopez/ccvitals.git
+  cd ccvitals
   ./install.sh [OPTIONS]
 
 Options:
@@ -187,7 +187,7 @@ for arg in "$@"; do
         --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --line2=*) LINE2_ARG="${arg#--line2=}" ;;
-        --version) echo "claude-statusline v$STATUSLINE_VERSION"; exit 0 ;;
+        --version) echo "ccvitals v$STATUSLINE_VERSION"; exit 0 ;;
     esac
 done
 
@@ -324,7 +324,7 @@ elif [ "$SKIP_MENU" = false ]; then
 
         draw_menu() {
             echo ""
-            echo -e "${BOLD}Claude Statusline — Choose your modules:${NC}"
+            echo -e "${BOLD}ccvitals — Choose your modules:${NC}"
             echo ""
             for i in 1 2 3 4 5 6 7 8 9; do
                 local desc
@@ -518,7 +518,7 @@ fi
 INSTALL_SUCCESS=true
 
 echo ""
-echo -e "${GREEN}Claude Statusline v${STATUSLINE_VERSION} installed successfully!${NC}"
+echo -e "${GREEN}ccvitals v${STATUSLINE_VERSION} installed successfully!${NC}"
 echo ""
 echo "  What was installed:"
 echo "    Script:   $script_dest (symlink -> $SOURCE_SCRIPT)"
