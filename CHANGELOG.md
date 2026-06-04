@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-04
+
+### Added
+
+- **Project renamed to ccvitals** — GitHub repo moved to `educlopez/ccvitals` (old URLs redirect)
+- **Claude Code plugin distribution** — install via `/plugin marketplace add educlopez/ccvitals` + `/plugin install ccvitals@ccvitals`, then `/ccvitals:setup`; reconfigure anytime with `/ccvitals:configure`
+- **Cost module** (`cost`) — session cost in USD, e.g. `$0.42`
+- **Duration module** (`duration`) — session wall-clock time, e.g. `1h31m`
+- **Speed module** (`speed`) — token throughput between renders, e.g. `150 tok/s`
+- **Vim module** (`vim`) — vim mode indicator (`N`/`I`/`V`/`VL`), hidden when vim mode is off
+- **Agent module** (`agent`) — active agent name, e.g. `@ security-reviewer`
+- **PR module** (`pr`) — linked pull request number and review state, e.g. `PR #123 approved`
+- **Weekly quota module** (`weekly`) — 7-day usage bar with reset countdown, e.g. `7d: ███░░░░░░░ 38%`
+
+### Changed
+
+- The `usage` module now prefers `rate_limits` data from Claude Code's stdin JSON (zero-latency, no network) and only falls back to the OAuth API when absent
+
 ## [1.3.0] - 2026-05-27
 
 ### Added
@@ -65,5 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/educlopez/ccvitals/compare/v1.3.0...v1.4.0
 [1.0.0]: https://github.com/educlopez/ccvitals/releases/tag/v1.0.0

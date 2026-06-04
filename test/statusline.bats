@@ -237,3 +237,232 @@ setup() {
     clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
     [[ "$clean" == *"|"* ]]
 }
+
+# ─── Cost module ───
+
+@test "statusline: cost shows formatted USD when field present and module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_cost_usd":0.42}}'
+    echo '{"modules":["cost"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *'$0.42'* ]]
+}
+
+@test "statusline: cost hidden when field absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["cost"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: cost hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" != *'$0.42'* ]]
+}
+
+# ─── Duration module ───
+
+@test "statusline: duration shows humanized time when field present and module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_duration_ms":5040000}}'
+    echo '{"modules":["duration"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # 5040000ms = 5040s = 84m = 1h24m
+    [[ "$output" == *"1h24m"* ]]
+}
+
+@test "statusline: duration shows minutes only when under 1 hour" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"cost":{"total_duration_ms":2700000}}'
+    echo '{"modules":["duration"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # 2700000ms = 2700s = 45m
+    [[ "$output" == *"45m"* ]]
+}
+
+@test "statusline: duration hidden when field absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["duration"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"h"* ]] || [[ "$output" != *"m"* ]]
+    # output should be empty (no module output)
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: duration hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"1h31m"* ]]
+}
+
+# ─── Vim module ───
+
+@test "statusline: vim shows N for NORMAL mode when module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"vim":{"mode":"NORMAL"}}'
+    echo '{"modules":["vim"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"N"* ]]
+}
+
+@test "statusline: vim shows I for INSERT mode" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"vim":{"mode":"INSERT"}}'
+    echo '{"modules":["vim"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"I"* ]]
+}
+
+@test "statusline: vim hidden when vim.mode absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["vim"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: vim hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should not show bare "N" that would be from vim module (model name won't contain it)
+    [[ "$clean" != *" N "* ]]
+}
+
+# ─── Agent module ───
+
+@test "statusline: agent shows name when field present and module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"agent":{"name":"my-agent"}}'
+    echo '{"modules":["agent"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"my-agent"* ]]
+}
+
+@test "statusline: agent hidden when agent.name absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["agent"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: agent hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"my-agent"* ]]
+}
+
+# ─── PR module ───
+
+@test "statusline: pr shows number when field present and module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"pr":{"number":123,"url":"https://example.com","review_state":"approved"}}'
+    echo '{"modules":["pr"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"PR #123"* ]]
+    [[ "$clean" == *"approved"* ]]
+}
+
+@test "statusline: pr hidden when pr.number absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["pr"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: pr hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"PR #"* ]]
+}
+
+# ─── Weekly module ───
+
+@test "statusline: weekly shows bar when rate_limits.seven_day present and module enabled" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"rate_limits":{"seven_day":{"used_percentage":38,"resets_at":9999999999}}}'
+    echo '{"modules":["weekly"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"7d:"* ]]
+    [[ "$clean" == *"38%"* ]]
+}
+
+@test "statusline: weekly hidden when rate_limits.seven_day absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["weekly"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: weekly hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"7d:"* ]]
+}
+
+# ─── Speed module ───
+
+@test "statusline: speed hidden on first render (no cache file)" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"total_input_tokens":1000,"total_output_tokens":100},"session_id":"speed-test-new-session-$$"}'
+    echo '{"modules":["speed"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # First render: no previous cache, so no output
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: speed hidden when module disabled" {
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"tok/s"* ]]
+}
+
+@test "statusline: speed hidden when session_id absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"total_input_tokens":1000,"total_output_tokens":100}}'
+    echo '{"modules":["speed"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"tok/s"* ]]
+}

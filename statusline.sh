@@ -3,7 +3,7 @@
 # Claude Code Statusline — Real-time usage, context, and git info
 # https://github.com/educlopez/ccvitals
 
-STATUSLINE_VERSION="1.3.0"
+STATUSLINE_VERSION="1.4.0"
 
 # Read JSON input from stdin
 input=$(cat)
@@ -31,6 +31,13 @@ mod_rtk=false
 mod_codegraph=false
 mod_lines=false
 mod_mode=false
+mod_cost=false
+mod_duration=false
+mod_speed=false
+mod_vim=false
+mod_agent=false
+mod_pr=false
+mod_weekly=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
@@ -62,6 +69,13 @@ if [ -f "$statusline_config" ]; then
                 codegraph) mod_codegraph=true ;;
                 lines)     mod_lines=true ;;
                 mode)      mod_mode=true ;;
+                cost)      mod_cost=true ;;
+                duration)  mod_duration=true ;;
+                speed)     mod_speed=true ;;
+                vim)       mod_vim=true ;;
+                agent)     mod_agent=true ;;
+                pr)        mod_pr=true ;;
+                weekly)    mod_weekly=true ;;
             esac
         done <<< "$modules
 $modules2"
@@ -322,6 +336,13 @@ if [ "$mod_usage" = true ]; then
         seven_d=$(jq -r '.data.seven_day.utilization // empty' "$file" 2>/dev/null)
         plan_raw=$(jq -r '.plan // empty' "$file" 2>/dev/null)
 
+        # Prefer stdin rate_limits.five_hour when present (zero-latency, no network)
+        local stdin_5h
+        stdin_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
+        if [ -n "$stdin_5h" ]; then
+            five_h="$stdin_5h"
+        fi
+
         [ -z "$five_h" ] && return
 
         # Derive plan display name
@@ -356,16 +377,27 @@ if [ "$mod_usage" = true ]; then
         for ((i=0; i<u_filled; i++)); do u_bar+="█"; done
         for ((i=0; i<u_empty; i++)); do u_bar+="░"; done
 
-        # Reset time for 5h window
+        # Reset time for 5h window (prefer stdin rate_limits.five_hour.resets_at when present)
         local reset_str=""
         local reset_at
-        reset_at=$(jq -r '.data.five_hour.resets_at // empty' "$file" 2>/dev/null)
+        reset_at=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty' 2>/dev/null)
+        if [ -z "$reset_at" ]; then
+            reset_at=$(jq -r '.data.five_hour.resets_at // empty' "$file" 2>/dev/null)
+        fi
         if [ -n "$reset_at" ]; then
-            local clean_date
-            clean_date=$(echo "$reset_at" | sed -E 's/\.[0-9]+//; s/\+00:00$/Z/')
-            local reset_epoch
-            reset_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
-                || date -u -d "$clean_date" +%s 2>/dev/null)
+            local reset_epoch=""
+            # stdin resets_at is a unix epoch integer; cache file value is ISO date string
+            case "$reset_at" in
+                [0-9]*)
+                    reset_epoch="$reset_at"
+                    ;;
+                *)
+                    local clean_date
+                    clean_date=$(echo "$reset_at" | sed -E 's/\.[0-9]+//; s/\+00:00$/Z/')
+                    reset_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$clean_date" +%s 2>/dev/null \
+                        || date -u -d "$clean_date" +%s 2>/dev/null)
+                    ;;
+            esac
             if [ -n "$reset_epoch" ]; then
                 local remaining=$(( reset_epoch - $(date +%s) ))
                 if [ "$remaining" -gt 0 ]; then
@@ -395,6 +427,160 @@ if [ "$mod_usage" = true ]; then
     }
 
     get_usage_display
+fi
+
+# --- Cost module ---
+cost_info=""
+if [ "$mod_cost" = true ]; then
+    cost_val=$(echo "$input" | jq -r '.cost.total_cost_usd // empty')
+    if [ -n "$cost_val" ]; then
+        # Format: $0.12 under $10 (2 decimal), else 1 decimal or integer
+        cost_fmt=$(echo "$cost_val" | awk '{
+            v = $1 + 0
+            if (v < 10) { printf "$%.2f", v }
+            else if (v < 100) { printf "$%.1f", v }
+            else { printf "$%.0f", v }
+        }')
+        cost_info="${GRAY}${cost_fmt}${NC}"
+    fi
+fi
+
+# --- Duration module ---
+duration_info=""
+if [ "$mod_duration" = true ]; then
+    dur_ms=$(echo "$input" | jq -r '.cost.total_duration_ms // empty')
+    if [ -n "$dur_ms" ] && [ "$dur_ms" -gt 0 ] 2>/dev/null; then
+        dur_s=$((dur_ms / 1000))
+        dur_mins=$((dur_s / 60))
+        dur_hrs=$((dur_mins / 60))
+        dur_days=$((dur_hrs / 24))
+        if [ "$dur_days" -gt 0 ]; then
+            leftover_hrs=$((dur_hrs - dur_days * 24))
+            duration_info="${GRAY}${dur_days}d${leftover_hrs}h${NC}"
+        elif [ "$dur_hrs" -gt 0 ]; then
+            leftover_mins=$((dur_mins - dur_hrs * 60))
+            duration_info="${GRAY}${dur_hrs}h${leftover_mins}m${NC}"
+        else
+            duration_info="${GRAY}${dur_mins}m${NC}"
+        fi
+    fi
+fi
+
+# --- Speed module (tok/s using local cache keyed by session_id) ---
+speed_info=""
+if [ "$mod_speed" = true ]; then
+    speed_session=$(echo "$input" | jq -r '.session_id // empty')
+    sp_input=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
+    sp_output=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
+    if [ -n "$speed_session" ] && [ "${sp_input:-0}" -ge 0 ] 2>/dev/null; then
+        sp_total=$((sp_input + sp_output))
+        sp_now=$(date +%s)
+        speed_cache_dir="$config_dir/.speed-cache"
+        sp_file="$speed_cache_dir/speed-$(printf '%s' "$speed_session" | tr -dc 'a-zA-Z0-9_-' | cut -c1-40).txt"
+        mkdir -p "$speed_cache_dir"
+        sp_prev_tokens=""
+        sp_prev_epoch=""
+        if [ -f "$sp_file" ]; then
+            sp_prev_tokens=$(cut -f1 "$sp_file" 2>/dev/null)
+            sp_prev_epoch=$(cut -f2 "$sp_file" 2>/dev/null)
+        fi
+        if [ -n "$sp_prev_tokens" ] && [ -n "$sp_prev_epoch" ] && [ "$sp_prev_tokens" -ge 0 ] 2>/dev/null && [ "$sp_prev_epoch" -ge 0 ] 2>/dev/null; then
+            sp_delta_tokens=$((sp_total - sp_prev_tokens))
+            sp_delta_secs=$((sp_now - sp_prev_epoch))
+            if [ "$sp_delta_tokens" -lt 0 ]; then
+                # Context shrunk (compact) — reset baseline
+                printf '%s\t%s\n' "$sp_total" "$sp_now" > "$sp_file"
+            elif [ "$sp_delta_secs" -ge 1 ]; then
+                sp_rate=$((sp_delta_tokens / sp_delta_secs))
+                speed_info="${GRAY}${sp_rate} tok/s${NC}"
+                printf '%s\t%s\n' "$sp_total" "$sp_now" > "$sp_file"
+            fi
+        else
+            # First render or corrupt cache — write baseline, hide output
+            printf '%s\t%s\n' "$sp_total" "$sp_now" > "$sp_file"
+        fi
+    fi
+fi
+
+# --- Vim mode module ---
+vim_info=""
+if [ "$mod_vim" = true ]; then
+    vim_mode=$(echo "$input" | jq -r '.vim.mode // empty')
+    if [ -n "$vim_mode" ]; then
+        case "$vim_mode" in
+            "NORMAL")      vim_info="${GREEN}N${NC}" ;;
+            "INSERT")      vim_info="${CYAN}I${NC}" ;;
+            "VISUAL")      vim_info="${YELLOW}V${NC}" ;;
+            "VISUAL LINE") vim_info="${MAGENTA}VL${NC}" ;;
+            *)             vim_info="${GRAY}${vim_mode}${NC}" ;;
+        esac
+    fi
+fi
+
+# --- Agent module ---
+agent_info=""
+if [ "$mod_agent" = true ]; then
+    agent_name=$(echo "$input" | jq -r '.agent.name // empty')
+    [ -n "$agent_name" ] && agent_info="${CYAN}@ ${agent_name}${NC}"
+fi
+
+# --- PR module ---
+pr_info=""
+if [ "$mod_pr" = true ]; then
+    pr_num=$(echo "$input" | jq -r '.pr.number // empty')
+    if [ -n "$pr_num" ]; then
+        pr_review=$(echo "$input" | jq -r '.pr.review_state // empty')
+        pr_info="${CYAN}PR #${pr_num}${NC}"
+        [ -n "$pr_review" ] && pr_info="${pr_info} ${GRAY}${pr_review}${NC}"
+    fi
+fi
+
+# --- Weekly quota module ---
+weekly_info=""
+if [ "$mod_weekly" = true ]; then
+    # Prefer stdin rate_limits.seven_day when present (zero-latency)
+    weekly_pct=$(echo "$input" | jq -r '(.rate_limits.seven_day.used_percentage // empty) | floor')
+    weekly_resets=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+    if [ -n "$weekly_pct" ]; then
+        # Color
+        w_color="$CYAN"
+        [ "$weekly_pct" -ge 50 ] 2>/dev/null && w_color="$YELLOW"
+        [ "$weekly_pct" -ge 75 ] 2>/dev/null && w_color="$MAGENTA"
+        [ "$weekly_pct" -ge 90 ] 2>/dev/null && w_color="$RED"
+        # Bar (10 chars, same style as usage module)
+        w_bar_width=10
+        w_filled=$((weekly_pct * w_bar_width / 100))
+        [ "$w_filled" -gt "$w_bar_width" ] && w_filled=$w_bar_width
+        w_empty=$((w_bar_width - w_filled))
+        w_bar=""
+        for ((i=0; i<w_filled; i++)); do w_bar+="█"; done
+        for ((i=0; i<w_empty; i++)); do w_bar+="░"; done
+        # Reset countdown
+        w_reset_str=""
+        case "$weekly_resets" in
+            ''|*[!0-9]*) w_reset_epoch=0 ;;  # absent or ISO string — skip countdown
+            *) w_reset_epoch=$weekly_resets ;;
+        esac
+        if [ -n "$weekly_resets" ]; then
+            if [ "$w_reset_epoch" -gt 0 ] 2>/dev/null; then
+                w_remaining=$(( w_reset_epoch - $(date +%s) ))
+                if [ "$w_remaining" -gt 0 ]; then
+                    w_days=$((w_remaining / 86400))
+                    w_hrs=$(( (w_remaining % 86400) / 3600 ))
+                    if [ "$w_days" -gt 0 ]; then
+                        w_reset_str=" ${GRAY}${w_days}d${w_hrs}h${NC}"
+                    elif [ "$w_hrs" -gt 0 ]; then
+                        w_mins=$(( (w_remaining % 3600) / 60 ))
+                        w_reset_str=" ${GRAY}${w_hrs}h${w_mins}m${NC}"
+                    else
+                        w_mins=$(( w_remaining / 60 ))
+                        w_reset_str=" ${GRAY}${w_mins}m${NC}"
+                    fi
+                fi
+            fi
+        fi
+        weekly_info="${GRAY}7d:${NC} ${w_color}${w_bar}${NC} ${w_color}${weekly_pct}%${NC}${w_reset_str}"
+    fi
 fi
 
 # --- Tool modules (rtk, codegraph) ---
@@ -531,13 +717,20 @@ route() {  # $1 = module name, $2 = bare chunk
 
 [ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}"
 [ "$mod_model" = true ]     && route model "${CYAN}${model_name}${NC}"
-route context "$context_info"
-route usage   "$usage_info"
-route rtk     "$rtk_info"
-route mode    "$mode_info"
-route git     "$git_info"
-route lines   "$lines_info"
+route context  "$context_info"
+route usage    "$usage_info"
+route rtk      "$rtk_info"
+route mode     "$mode_info"
+route git      "$git_info"
+route lines    "$lines_info"
 route codegraph "$cg_info"
+route cost     "$cost_info"
+route duration "$duration_info"
+route speed    "$speed_info"
+route vim      "$vim_info"
+route agent    "$agent_info"
+route pr       "$pr_info"
+route weekly   "$weekly_info"
 
 if [ -n "$line2" ]; then
     printf '%b\n%b\n' "$line1" "$line2"

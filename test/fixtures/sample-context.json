@@ -3,10 +3,48 @@
   "workspace": {"current_dir": "/tmp/test-project"},
   "context_window": {
     "context_window_size": 200000,
+    "total_input_tokens": 26000,
+    "total_output_tokens": 1500,
+    "used_percentage": 13,
+    "remaining_percentage": 87,
     "current_usage": {
       "input_tokens": 20000,
       "cache_creation_input_tokens": 5000,
-      "cache_read_input_tokens": 1000
+      "cache_read_input_tokens": 1000,
+      "output_tokens": 1500
     }
-  }
+  },
+  "cost": {
+    "total_cost_usd": 0.42,
+    "total_duration_ms": 5460000,
+    "total_api_duration_ms": 4800000,
+    "total_lines_added": 264,
+    "total_lines_removed": 195
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 58,
+      "resets_at": 1748000000
+    },
+    "seven_day": {
+      "used_percentage": 38,
+      "resets_at": 1748350000
+    }
+  },
+  "vim": {
+    "mode": "NORMAL"
+  },
+  "agent": {
+    "name": "my-agent"
+  },
+  "pr": {
+    "number": 123,
+    "url": "https://github.com/example/repo/pull/123",
+    "review_state": "approved"
+  },
+  "session_id": "test-session-123",
+  "effort": {"level": "high"},
+  "thinking": {"enabled": false},
+  "version": "2.1.132",
+  "exceeds_200k_tokens": false
 }

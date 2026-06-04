@@ -46,6 +46,13 @@ Use AskUserQuestion to ask:
 > - **codegraph** — CodeGraph index size (needs `codegraph` CLI)
 > - **lines** — cumulative lines added/removed this session
 > - **mode** — reasoning effort level + fast-mode flag
+> - **cost** — session cost in USD (e.g. $0.42)
+> - **duration** — session wall-clock time (e.g. 1h23m)
+> - **speed** — token throughput in tok/s
+> - **vim** — vim mode indicator (N/I/V/VL)
+> - **agent** — active agent name
+> - **pr** — linked PR number and review state
+> - **weekly** — 7-day quota bar with reset countdown
 >
 > List all modules you want enabled, separated by spaces.
 > Example: `directory model context usage git lines mode`

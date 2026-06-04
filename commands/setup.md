@@ -36,7 +36,7 @@ Use AskUserQuestion to ask:
 > Which module preset would you like?
 >
 > **1) Essential** (recommended) — directory, model, context, usage, git
-> **2) Everything** — all 9 modules (adds: rtk, codegraph, lines, mode)
+> **2) Everything** — all 16 modules (adds: rtk, codegraph, lines, mode, cost, duration, speed, vim, agent, pr, weekly)
 > **3) Custom** — start with Essential, then choose which extras to add
 >
 > Enter 1, 2, or 3.
@@ -50,6 +50,13 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 > - **codegraph** — CodeGraph index size (needs the `codegraph` CLI)
 > - **lines** — Lines added/removed this session
 > - **mode** — Reasoning effort level
+> - **cost** — Session cost in USD (e.g. $0.42)
+> - **duration** — Session wall-clock time (e.g. 1h23m)
+> - **speed** — Token throughput in tok/s
+> - **vim** — Vim mode indicator (N/I/V/VL)
+> - **agent** — Active agent name
+> - **pr** — Linked PR number and review state
+> - **weekly** — 7-day quota bar with reset countdown
 >
 > List the names separated by spaces, or press Enter to skip all.
 
@@ -57,7 +64,7 @@ If they choose **3 (Custom)**, use AskUserQuestion again to ask:
 
 Based on the preset:
 - **Essential**: modules = `["directory", "model", "context", "usage", "git"]`
-- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode"]`
+- **Everything**: modules = `["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly"]`
 - **Custom**: Essential set plus whatever extras the user selected
 
 There is no `modules_line2` in the setup flow (single-line layout). Use `/ccvitals:configure` to set up a two-line layout later.

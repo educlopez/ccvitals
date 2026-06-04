@@ -75,19 +75,19 @@ setup() {
     [ "$modules" = "context,model" ]
 }
 
-@test "install: --all creates config with all 9 modules" {
+@test "install: --all creates config with all 16 modules" {
     run bash "$INSTALLER" --all
     [ "$status" -eq 0 ]
 
     [ -f "$CLAUDE_CONFIG_DIR/.statusline-config.json" ]
     local count
     count=$(jq '.modules | length' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$count" -eq 9 ]
+    [ "$count" -eq 16 ]
 
-    # Verify all module names are present (core + tool/session modules)
+    # Verify all module names are present (core + tool/session/new modules)
     local modules
     modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$modules" = "codegraph,context,directory,git,lines,mode,model,rtk,usage" ]
+    [ "$modules" = "agent,codegraph,context,cost,directory,duration,git,lines,mode,model,pr,rtk,speed,usage,vim,weekly" ]
 }
 
 @test "install: --line2 splits modules into a second row" {

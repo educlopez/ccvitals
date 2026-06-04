@@ -86,7 +86,7 @@ Run `/ccvitals:configure` (plugin install) or re-run the installer with `--force
 
 ```json
 {
-  "modules": ["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode"]
+  "modules": ["directory", "model", "context", "usage", "git", "rtk", "codegraph", "lines", "mode", "cost", "duration", "speed", "vim", "agent", "pr", "weekly"]
 }
 ```
 
@@ -123,11 +123,18 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `codegraph` | CodeGraph index size + stale marker — e.g. `⬡ 11.7k ⚠3` (needs the `codegraph` CLI; only shows in indexed projects) |
 | `lines` | Lines added/removed this session — e.g. `+264 -195` (cumulative agent edits, distinct from the git working-tree diff) |
 | `mode` | Reasoning effort level + fast-mode flag — e.g. `⚡ xhigh` |
+| `cost` | Session cost in USD — e.g. `$0.42` (from stdin, zero-latency) |
+| `duration` | Session wall-clock time — e.g. `1h23m` (from stdin, zero-latency) |
+| `speed` | Token throughput — e.g. `42 tok/s` (delta between renders, cached per session) |
+| `vim` | Vim mode indicator — `N` / `I` / `V` / `VL` with distinct colors |
+| `agent` | Active agent name — e.g. `@ my-agent` (hidden when no agent active) |
+| `pr` | Linked PR number and review state — e.g. `PR #123 approved` (hidden when absent) |
+| `weekly` | 7-day quota bar with reset countdown — e.g. `7d: ████░░░░░░ 38% 4d2h` |
 
-> `rtk`, `codegraph`, `lines`, and `mode` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, and `weekly` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
-> each silently hides itself when its CLI isn't installed. `lines` and `mode`
+> each silently hides itself when its CLI isn't installed. All other new modules
 > read straight from the data Claude Code passes in, at zero extra cost.
 
 ## Features

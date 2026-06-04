@@ -17,7 +17,7 @@ set -euo pipefail
 #   ./install.sh --force               # repair/overwrite an existing install
 #   ./install.sh --help
 
-STATUSLINE_VERSION="1.3.0"
+STATUSLINE_VERSION="1.4.0"
 
 SCRIPT_NAME="statusline-command.sh"
 
@@ -35,6 +35,13 @@ MOD_DESC_6="RTK savings    rtk 86.8%↓               (needs rtk)"
 MOD_DESC_7="CodeGraph      ⬡ 11.7k ⚠3               (needs codegraph)"
 MOD_DESC_8="Session lines  +264 -195"
 MOD_DESC_9="Mode badge     ⚡ xhigh"
+MOD_DESC_10="Session cost   \$0.42"
+MOD_DESC_11="Session time   1h23m"
+MOD_DESC_12="Token speed    42 tok/s"
+MOD_DESC_13="Vim mode       N / I / V / VL"
+MOD_DESC_14="Agent name     @ my-agent"
+MOD_DESC_15="PR status      PR #123 approved"
+MOD_DESC_16="Weekly quota   7d: ████░░░░░░ 38% 4d2h"
 
 # ─── Phase 1.1: Color setup with NO_COLOR / TTY detection ───
 
@@ -105,17 +112,23 @@ trap cleanup EXIT
 
 get_mod_desc() {
     case "$1" in
-        1) echo "$MOD_DESC_1" ;; 2) echo "$MOD_DESC_2" ;; 3) echo "$MOD_DESC_3" ;;
-        4) echo "$MOD_DESC_4" ;; 5) echo "$MOD_DESC_5" ;; 6) echo "$MOD_DESC_6" ;;
-        7) echo "$MOD_DESC_7" ;; 8) echo "$MOD_DESC_8" ;; 9) echo "$MOD_DESC_9" ;;
+        1)  echo "$MOD_DESC_1"  ;; 2)  echo "$MOD_DESC_2"  ;; 3)  echo "$MOD_DESC_3"  ;;
+        4)  echo "$MOD_DESC_4"  ;; 5)  echo "$MOD_DESC_5"  ;; 6)  echo "$MOD_DESC_6"  ;;
+        7)  echo "$MOD_DESC_7"  ;; 8)  echo "$MOD_DESC_8"  ;; 9)  echo "$MOD_DESC_9"  ;;
+        10) echo "$MOD_DESC_10" ;; 11) echo "$MOD_DESC_11" ;; 12) echo "$MOD_DESC_12" ;;
+        13) echo "$MOD_DESC_13" ;; 14) echo "$MOD_DESC_14" ;; 15) echo "$MOD_DESC_15" ;;
+        16) echo "$MOD_DESC_16" ;;
     esac
 }
 
 get_mod_name() {
     case "$1" in
-        1) echo "directory" ;; 2) echo "model" ;; 3) echo "context" ;;
-        4) echo "usage" ;; 5) echo "git" ;; 6) echo "rtk" ;; 7) echo "codegraph" ;;
-        8) echo "lines" ;; 9) echo "mode" ;;
+        1)  echo "directory" ;; 2)  echo "model"    ;; 3)  echo "context" ;;
+        4)  echo "usage"     ;; 5)  echo "git"      ;; 6)  echo "rtk"     ;;
+        7)  echo "codegraph" ;; 8)  echo "lines"    ;; 9)  echo "mode"    ;;
+        10) echo "cost"      ;; 11) echo "duration" ;; 12) echo "speed"   ;;
+        13) echo "vim"       ;; 14) echo "agent"    ;; 15) echo "pr"      ;;
+        16) echo "weekly"    ;;
     esac
 }
 
@@ -141,7 +154,8 @@ Options:
   --all              Install all modules without showing the interactive menu
   --modules=LIST     Install specific modules (comma-separated, no spaces)
                      Available: directory, model, context, usage, git, rtk,
-                     codegraph, lines, mode
+                     codegraph, lines, mode, cost, duration, speed, vim,
+                     agent, pr, weekly
   --line2=LIST       Render these modules on a second row (comma-separated).
                      They are placed in modules_line2; the rest stay on line 1.
 
@@ -162,6 +176,13 @@ Modules:
   codegraph    Show CodeGraph index size + stale marker (needs codegraph CLI)
   lines        Show lines added/removed this session
   mode         Show reasoning effort level + fast-mode flag
+  cost         Show session cost in USD (e.g. $0.42)
+  duration     Show session wall-clock time (e.g. 1h23m)
+  speed        Show token throughput (e.g. 42 tok/s)
+  vim          Show vim mode indicator (N/I/V/VL)
+  agent        Show active agent name
+  pr           Show linked PR number and review state
+  weekly       Show 7-day quota bar with reset countdown
 
 Update:
   cd $REPO_DIR && git pull
@@ -184,7 +205,7 @@ for arg in "$@"; do
     case "$arg" in
         --help|-h) show_help ;;
         --force)   FORCE=true ;;
-        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode" ;;
+        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --line2=*) LINE2_ARG="${arg#--line2=}" ;;
         --version) echo "ccvitals v$STATUSLINE_VERSION"; exit 0 ;;
@@ -297,28 +318,40 @@ elif [ "$SKIP_MENU" = false ]; then
     fi
 
     if [ "$CAN_INTERACT" = true ]; then
-        # Track enabled state: 1=on, 0=off. Core modules on, tool modules off.
-        en_1=1; en_2=1; en_3=1; en_4=1; en_5=1; en_6=0; en_7=0; en_8=0; en_9=0
+        # Track enabled state: 1=on, 0=off. Core modules on, tool/opt-in modules off.
+        en_1=1; en_2=1; en_3=1; en_4=1; en_5=1
+        en_6=0; en_7=0; en_8=0; en_9=0
+        en_10=0; en_11=0; en_12=0; en_13=0; en_14=0; en_15=0; en_16=0
 
         get_en() {
             case "$1" in
-                1) echo "$en_1" ;; 2) echo "$en_2" ;; 3) echo "$en_3" ;;
-                4) echo "$en_4" ;; 5) echo "$en_5" ;; 6) echo "$en_6" ;;
-                7) echo "$en_7" ;; 8) echo "$en_8" ;; 9) echo "$en_9" ;;
+                1)  echo "$en_1"  ;; 2)  echo "$en_2"  ;; 3)  echo "$en_3"  ;;
+                4)  echo "$en_4"  ;; 5)  echo "$en_5"  ;; 6)  echo "$en_6"  ;;
+                7)  echo "$en_7"  ;; 8)  echo "$en_8"  ;; 9)  echo "$en_9"  ;;
+                10) echo "$en_10" ;; 11) echo "$en_11" ;; 12) echo "$en_12" ;;
+                13) echo "$en_13" ;; 14) echo "$en_14" ;; 15) echo "$en_15" ;;
+                16) echo "$en_16" ;;
             esac
         }
 
         toggle() {
             case "$1" in
-                1) if [ "$en_1" -eq 1 ]; then en_1=0; else en_1=1; fi ;;
-                2) if [ "$en_2" -eq 1 ]; then en_2=0; else en_2=1; fi ;;
-                3) if [ "$en_3" -eq 1 ]; then en_3=0; else en_3=1; fi ;;
-                4) if [ "$en_4" -eq 1 ]; then en_4=0; else en_4=1; fi ;;
-                5) if [ "$en_5" -eq 1 ]; then en_5=0; else en_5=1; fi ;;
-                6) if [ "$en_6" -eq 1 ]; then en_6=0; else en_6=1; fi ;;
-                7) if [ "$en_7" -eq 1 ]; then en_7=0; else en_7=1; fi ;;
-                8) if [ "$en_8" -eq 1 ]; then en_8=0; else en_8=1; fi ;;
-                9) if [ "$en_9" -eq 1 ]; then en_9=0; else en_9=1; fi ;;
+                1)  if [ "$en_1"  -eq 1 ]; then en_1=0;  else en_1=1;  fi ;;
+                2)  if [ "$en_2"  -eq 1 ]; then en_2=0;  else en_2=1;  fi ;;
+                3)  if [ "$en_3"  -eq 1 ]; then en_3=0;  else en_3=1;  fi ;;
+                4)  if [ "$en_4"  -eq 1 ]; then en_4=0;  else en_4=1;  fi ;;
+                5)  if [ "$en_5"  -eq 1 ]; then en_5=0;  else en_5=1;  fi ;;
+                6)  if [ "$en_6"  -eq 1 ]; then en_6=0;  else en_6=1;  fi ;;
+                7)  if [ "$en_7"  -eq 1 ]; then en_7=0;  else en_7=1;  fi ;;
+                8)  if [ "$en_8"  -eq 1 ]; then en_8=0;  else en_8=1;  fi ;;
+                9)  if [ "$en_9"  -eq 1 ]; then en_9=0;  else en_9=1;  fi ;;
+                10) if [ "$en_10" -eq 1 ]; then en_10=0; else en_10=1; fi ;;
+                11) if [ "$en_11" -eq 1 ]; then en_11=0; else en_11=1; fi ;;
+                12) if [ "$en_12" -eq 1 ]; then en_12=0; else en_12=1; fi ;;
+                13) if [ "$en_13" -eq 1 ]; then en_13=0; else en_13=1; fi ;;
+                14) if [ "$en_14" -eq 1 ]; then en_14=0; else en_14=1; fi ;;
+                15) if [ "$en_15" -eq 1 ]; then en_15=0; else en_15=1; fi ;;
+                16) if [ "$en_16" -eq 1 ]; then en_16=0; else en_16=1; fi ;;
             esac
         }
 
@@ -326,13 +359,13 @@ elif [ "$SKIP_MENU" = false ]; then
             echo ""
             echo -e "${BOLD}ccvitals — Choose your modules:${NC}"
             echo ""
-            for i in 1 2 3 4 5 6 7 8 9; do
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
                 local desc
                 desc=$(get_mod_desc "$i")
                 if [ "$(get_en "$i")" -eq 1 ]; then
-                    echo -e "  ${GREEN}[x]${NC} ${BOLD}$i)${NC} $desc"
+                    echo -e "  ${GREEN}[x]${NC} ${BOLD}${i})${NC} $desc"
                 else
-                    echo -e "  ${GRAY}[ ] $i) $desc${NC}"
+                    echo -e "  ${GRAY}[ ] ${i}) $desc${NC}"
                 fi
             done
             echo ""
@@ -340,7 +373,7 @@ elif [ "$SKIP_MENU" = false ]; then
         }
 
         # ─── Phase 1.4: ANSI escapes instead of tput ───
-        MENU_LINES=14
+        MENU_LINES=21
         draw_menu
 
         while true; do
@@ -356,13 +389,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     ;;
                 a|A)
                     en_1=1; en_2=1; en_3=1; en_4=1; en_5=1; en_6=1; en_7=1; en_8=1; en_9=1
+                    en_10=1; en_11=1; en_12=1; en_13=1; en_14=1; en_15=1; en_16=1
                     # Redraw using ANSI escapes (Phase 1.4)
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
                     done
                     draw_menu
                     ;;
-                [1-9])
+                [1-9]|1[0-6])
                     toggle "$choice"
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
@@ -370,14 +404,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     draw_menu
                     ;;
                 *)
-                    echo -e "  ${YELLOW}Enter 1-9, 'a' for all, or Enter to confirm${NC}"
+                    echo -e "  ${YELLOW}Enter 1-16, 'a' for all, or Enter to confirm${NC}"
                     ;;
             esac
         done
 
         # Build selected modules string
         result=""
-        for i in 1 2 3 4 5 6 7 8 9; do
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
             if [ "$(get_en "$i")" -eq 1 ]; then
                 name=$(get_mod_name "$i")
                 if [ -n "$result" ]; then
@@ -396,7 +430,7 @@ elif [ "$SKIP_MENU" = false ]; then
             l2_result=""
             for tok in $l2_choice; do
                 case "$tok" in
-                    [1-9])
+                    [1-9]|1[0-6])
                         if [ "$(get_en "$tok")" -eq 1 ]; then
                             n=$(get_mod_name "$tok")
                             if [ -n "$l2_result" ]; then l2_result="$l2_result,$n"; else l2_result="$n"; fi
