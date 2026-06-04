@@ -466,3 +466,103 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" != *"tok/s"* ]]
 }
+
+# ─── Theme system ───
+
+@test "statusline: no theme key renders identically to legacy default (no regression)" {
+    # Same module set both runs: once without theme key, once with explicit default
+    echo '{"modules":["directory","model","context","git"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_no_theme="$output"
+
+    echo '{"modules":["directory","model","context","git"],"theme":"default"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local out_default_theme="$output"
+
+    # Full output (including ANSI codes) must match exactly
+    [ "$out_no_theme" = "$out_default_theme" ]
+}
+
+@test "statusline: tokyo-night theme outputs truecolor escape sequences" {
+    echo '{"modules":["model"],"theme":"tokyo-night"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Truecolor sequences have the form ESC[38;2;R;G;Bm
+    [[ "$output" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: catppuccin theme outputs truecolor escape sequences" {
+    echo '{"modules":["model"],"theme":"catppuccin"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: dracula theme outputs truecolor escape sequences" {
+    echo '{"modules":["model"],"theme":"dracula"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: nord theme outputs truecolor escape sequences" {
+    echo '{"modules":["model"],"theme":"nord"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: custom colors override works" {
+    # Set a custom blue that would produce \033[38;2;255;0;128m
+    echo '{"modules":["directory"],"theme":"custom","colors":{"blue":"#ff0080"}}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Should contain the specific truecolor sequence for #ff0080 (255;0;128)
+    [[ "$output" == *$'\033[38;2;255;0;128m'* ]]
+}
+
+@test "statusline: custom theme with no colors key falls back to defaults" {
+    # theme=custom but no colors object — should still render without error
+    echo '{"modules":["model"],"theme":"custom"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+}
+
+@test "statusline: invalid theme name falls back to default (no crash)" {
+    echo '{"modules":["model","context"],"theme":"nonexistent-theme-xyz"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Should still render content correctly
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    # Should NOT contain truecolor sequences (fell back to 16-color defaults)
+    [[ "$output" != *$'\033[38;2;'* ]]
+}
+
+@test "statusline: mono theme produces no truecolor sequences" {
+    echo '{"modules":["model","context"],"theme":"mono"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *$'\033[38;2;'* ]]
+    # Content still present
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+}

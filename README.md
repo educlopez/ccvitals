@@ -174,6 +174,50 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | 75-89% | Magenta |
 | 90%+ | Red |
 
+## Themes
+
+ccvitals ships with five built-in color presets plus a custom mode. Set the `"theme"` key in `~/.claude/.statusline-config.json`:
+
+| Theme | Description |
+|-------|-------------|
+| `default` | Classic 16-color ANSI palette (backward compatible, used when key is absent) |
+| `tokyo-night` | Blue/purple night palette — Tokyo Night |
+| `catppuccin` | Soft pastel palette — Catppuccin Mocha |
+| `dracula` | High-contrast dark palette — Dracula |
+| `nord` | Arctic, cool-toned palette — Nord |
+| `mono` | Bold/white only — no color, for minimal setups |
+
+Switch theme by running `/ccvitals:configure` (plugin install) or editing the config directly:
+
+```json
+{
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "tokyo-night"
+}
+```
+
+### Custom colors
+
+Set `"theme": "custom"` and supply a `"colors"` object with any of the seven color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`). Missing keys fall back to the default palette. Values must be `#RRGGBB` hex strings:
+
+```json
+{
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "custom",
+  "colors": {
+    "blue": "#7aa2f7",
+    "green": "#9ece6a",
+    "magenta": "#bb9af7",
+    "cyan": "#7dcfff",
+    "yellow": "#e0af68",
+    "red": "#f7768e",
+    "gray": "#565f89"
+  }
+}
+```
+
+Truecolor terminals (iTerm2, Kitty, WezTerm, most modern Linux terminals) display the full RGB palette. The `default` and `mono` presets use the classic 16-color ANSI codes and work on every terminal.
+
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI

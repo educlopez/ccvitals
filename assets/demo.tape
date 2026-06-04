@@ -5,7 +5,7 @@ Output assets/demo.gif
 
 Set FontSize 16
 Set Width 1100
-Set Height 310
+Set Height 460
 Set Padding 24
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 40ms
@@ -17,4 +17,4 @@ Show
 Type "./assets/demo.sh"
 Sleep 500ms
 Enter
-Sleep 11s
+Sleep 15s

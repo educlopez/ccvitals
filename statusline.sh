@@ -86,7 +86,19 @@ fi
 model_name=$(echo "$input" | jq -r '.model.display_name')
 current_dir=$(echo "$input" | jq -r '.workspace.current_dir')
 
-# Colors
+# --- Theme / Color resolution ---
+# Convert a hex color string (#RRGGBB) to a truecolor ANSI escape sequence.
+# Bash-3.2 compatible: uses printf %d with 0x prefix for hex→decimal conversion.
+hex_to_ansi() {
+    local hex="${1#'#'}"
+    local r g b
+    r=$(printf '%d' "0x${hex:0:2}")
+    g=$(printf '%d' "0x${hex:2:2}")
+    b=$(printf '%d' "0x${hex:4:2}")
+    printf '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"
+}
+
+# Default (legacy ANSI) color values
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -95,6 +107,79 @@ CYAN='\033[0;36m'
 GRAY='\033[0;90m'
 MAGENTA='\033[0;95m'
 NC='\033[0m' # No Color
+
+# Apply theme preset if configured. Falls back to defaults silently on any error.
+if [ -f "$statusline_config" ]; then
+    _theme=$(jq -r '.theme // empty' "$statusline_config" 2>/dev/null)
+    case "$_theme" in
+        tokyo-night)
+            RED=$(hex_to_ansi '#f7768e')
+            GREEN=$(hex_to_ansi '#9ece6a')
+            BLUE=$(hex_to_ansi '#7aa2f7')
+            YELLOW=$(hex_to_ansi '#e0af68')
+            CYAN=$(hex_to_ansi '#7dcfff')
+            GRAY=$(hex_to_ansi '#565f89')
+            MAGENTA=$(hex_to_ansi '#bb9af7')
+            ;;
+        catppuccin)
+            RED=$(hex_to_ansi '#f38ba8')
+            GREEN=$(hex_to_ansi '#a6e3a1')
+            BLUE=$(hex_to_ansi '#89b4fa')
+            YELLOW=$(hex_to_ansi '#f9e2af')
+            CYAN=$(hex_to_ansi '#94e2d5')
+            GRAY=$(hex_to_ansi '#6c7086')
+            MAGENTA=$(hex_to_ansi '#cba6f7')
+            ;;
+        dracula)
+            RED=$(hex_to_ansi '#ff5555')
+            GREEN=$(hex_to_ansi '#50fa7b')
+            BLUE=$(hex_to_ansi '#6272a4')
+            YELLOW=$(hex_to_ansi '#f1fa8c')
+            CYAN=$(hex_to_ansi '#8be9fd')
+            GRAY=$(hex_to_ansi '#6272a4')
+            MAGENTA=$(hex_to_ansi '#ff79c6')
+            ;;
+        nord)
+            RED=$(hex_to_ansi '#bf616a')
+            GREEN=$(hex_to_ansi '#a3be8c')
+            BLUE=$(hex_to_ansi '#81a1c1')
+            YELLOW=$(hex_to_ansi '#ebcb8b')
+            CYAN=$(hex_to_ansi '#88c0d0')
+            GRAY=$(hex_to_ansi '#4c566a')
+            MAGENTA=$(hex_to_ansi '#b48ead')
+            ;;
+        mono)
+            RED='\033[1m'
+            GREEN='\033[1m'
+            BLUE='\033[1m'
+            YELLOW='\033[1m'
+            CYAN='\033[1m'
+            GRAY='\033[0;37m'
+            MAGENTA='\033[1m'
+            ;;
+        custom)
+            # Apply per-color overrides; missing keys keep the default value
+            _c_red=$(jq -r '.colors.red // empty' "$statusline_config" 2>/dev/null)
+            _c_green=$(jq -r '.colors.green // empty' "$statusline_config" 2>/dev/null)
+            _c_blue=$(jq -r '.colors.blue // empty' "$statusline_config" 2>/dev/null)
+            _c_yellow=$(jq -r '.colors.yellow // empty' "$statusline_config" 2>/dev/null)
+            _c_cyan=$(jq -r '.colors.cyan // empty' "$statusline_config" 2>/dev/null)
+            _c_gray=$(jq -r '.colors.gray // empty' "$statusline_config" 2>/dev/null)
+            _c_magenta=$(jq -r '.colors.magenta // empty' "$statusline_config" 2>/dev/null)
+            [ -n "$_c_red" ]     && RED=$(hex_to_ansi "$_c_red")
+            [ -n "$_c_green" ]   && GREEN=$(hex_to_ansi "$_c_green")
+            [ -n "$_c_blue" ]    && BLUE=$(hex_to_ansi "$_c_blue")
+            [ -n "$_c_yellow" ]  && YELLOW=$(hex_to_ansi "$_c_yellow")
+            [ -n "$_c_cyan" ]    && CYAN=$(hex_to_ansi "$_c_cyan")
+            [ -n "$_c_gray" ]    && GRAY=$(hex_to_ansi "$_c_gray")
+            [ -n "$_c_magenta" ] && MAGENTA=$(hex_to_ansi "$_c_magenta")
+            ;;
+        default|'')
+            # Keep legacy ANSI defaults defined above
+            ;;
+    esac
+    unset _theme _c_red _c_green _c_blue _c_yellow _c_cyan _c_gray _c_magenta
+fi
 
 # Get directory name (basename)
 dir_name=$(basename "$current_dir")
@@ -298,6 +383,16 @@ if [ "$mod_usage" = true ]; then
     }
 
     get_usage_display() {
+        # Fast path: Claude Code provides rate_limits via stdin — render with zero
+        # network and zero cache requirements. The plan badge comes from the last
+        # successful API fetch if one exists; absent that it's simply omitted.
+        local stdin_rl
+        stdin_rl=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
+        if [ -n "$stdin_rl" ]; then
+            render_usage "$last_good_file"
+            return
+        fi
+
         local now=$(date +%s)
 
         # Check cache freshness (respect retry-after on failures)
@@ -336,11 +431,15 @@ if [ "$mod_usage" = true ]; then
         seven_d=$(jq -r '.data.seven_day.utilization // empty' "$file" 2>/dev/null)
         plan_raw=$(jq -r '.plan // empty' "$file" 2>/dev/null)
 
-        # Prefer stdin rate_limits.five_hour when present (zero-latency, no network)
-        local stdin_5h
+        # Prefer stdin rate_limits when present (zero-latency, no network)
+        local stdin_5h stdin_7d
         stdin_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' 2>/dev/null)
         if [ -n "$stdin_5h" ]; then
             five_h="$stdin_5h"
+        fi
+        stdin_7d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' 2>/dev/null)
+        if [ -n "$stdin_7d" ]; then
+            seven_d="$stdin_7d"
         fi
 
         [ -z "$five_h" ] && return
@@ -423,7 +522,11 @@ if [ "$mod_usage" = true ]; then
             display="${display} ${GRAY}7d:${NC}${s_color}${seven_d}%${NC}"
         fi
 
-        usage_info="${GRAY}${plan_name}${NC} ${display}"
+        if [ -n "$plan_name" ]; then
+            usage_info="${GRAY}${plan_name}${NC} ${display}"
+        else
+            usage_info="$display"
+        fi
     }
 
     get_usage_display

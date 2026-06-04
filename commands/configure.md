@@ -80,15 +80,37 @@ If **yes**, use AskUserQuestion again to ask:
 
 Save the response as the `modules_line2` list (must be a subset of the chosen modules).
 
-### 5. Write `~/.claude/.statusline-config.json`
+### 5. Ask which theme to use
 
-Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`.
+Use AskUserQuestion to ask:
+
+> Which color theme would you like?
+> Current: [show current "theme" value from config, or "default" if absent]
+>
+> **1) default** — classic terminal 16-color palette (backward compatible)
+> **2) tokyo-night** — blue/purple night palette (Tokyo Night)
+> **3) catppuccin** — soft pastel palette (Catppuccin Mocha)
+> **4) dracula** — high-contrast dark palette (Dracula)
+> **5) nord** — arctic, cool-toned palette (Nord)
+> **6) mono** — bold/white only, no color (minimal setups)
+> **7) custom** — specify your own hex colors
+>
+> Enter 1–7.
+
+If they choose **7 (custom)**, use AskUserQuestion to ask for each of the 7 color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`) as hex values (`#RRGGBB`). Any key left blank keeps the default value.
+
+Save the theme name as `CHOSEN_THEME` (e.g. `"tokyo-night"`). For custom, also save a `colors` object with the non-blank entries.
+
+### 6. Write `~/.claude/.statusline-config.json`
+
+Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`. Preserve the existing `modules` and `modules_line2` keys; add or update the `theme` key (and optional `colors` key for custom).
 
 **Single-line layout** (no two-line selection or empty line2):
 
 ```json
 {
-  "modules": ["directory", "model", "context", "usage", "git"]
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "tokyo-night"
 }
 ```
 
@@ -97,29 +119,60 @@ Build the config JSON and write it to `$CONFIG_DIR/.statusline-config.json`.
 ```json
 {
   "modules": ["directory", "model", "git"],
-  "modules_line2": ["context", "usage", "lines", "mode"]
+  "modules_line2": ["context", "usage", "lines", "mode"],
+  "theme": "catppuccin"
+}
+```
+
+**Custom colors** (only override specific keys; rest fall back to default):
+
+```json
+{
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "custom",
+  "colors": {
+    "blue": "#7aa2f7",
+    "green": "#9ece6a"
+  }
 }
 ```
 
 The exact rule (matching install.sh behavior):
 - `modules` = chosen modules MINUS the ones that go on line 2
 - `modules_line2` = the line 2 subset (only included if non-empty)
+- `theme` = chosen theme name string (omit or `"default"` for legacy colors)
+- `colors` = only present when theme is `"custom"`
 
-Build and write using Bash:
+Build and write using Bash. Read the current config first and merge with jq to preserve all existing keys:
 
 ```bash
-# For single-line (adjust array as needed):
-jq -n --argjson mods '["directory","model","context","usage","git"]' \
-  '{"modules": $mods}' > "$CONFIG_DIR/.statusline-config.json"
+# Read current config (default to {} if missing)
+current=$(cat "$CONFIG_DIR/.statusline-config.json" 2>/dev/null || echo '{}')
 
-# For two-line layout (adjust arrays as needed):
-jq -n \
+# For single-line with a named theme (adjust arrays and theme as needed):
+echo "$current" | jq \
+  --argjson mods '["directory","model","context","usage","git"]' \
+  --arg theme 'tokyo-night' \
+  '. + {"modules": $mods, "theme": $theme} | del(.modules_line2) | del(.colors)' \
+  > "$CONFIG_DIR/.statusline-config.json"
+
+# For two-line layout with theme:
+echo "$current" | jq \
   --argjson mods '["directory","model","git"]' \
   --argjson l2 '["context","usage","lines","mode"]' \
-  '{"modules": $mods, "modules_line2": $l2}' > "$CONFIG_DIR/.statusline-config.json"
+  --arg theme 'catppuccin' \
+  '. + {"modules": $mods, "modules_line2": $l2, "theme": $theme} | del(.colors)' \
+  > "$CONFIG_DIR/.statusline-config.json"
+
+# For custom colors (adjust colors object as needed):
+echo "$current" | jq \
+  --argjson mods '["directory","model","context","usage","git"]' \
+  --argjson colors '{"blue":"#7aa2f7","green":"#9ece6a"}' \
+  '. + {"modules": $mods, "theme": "custom", "colors": $colors} | del(.modules_line2)' \
+  > "$CONFIG_DIR/.statusline-config.json"
 ```
 
-### 6. Check the statusLine key in settings.json
+### 7. Check the statusLine key in settings.json
 
 Read `$CONFIG_DIR/settings.json`. If the `statusLine` key is missing (the user may have set up ccvitals via git clone + install.sh and the key is already there, or it was removed), ask the user:
 
@@ -129,7 +182,7 @@ Read `$CONFIG_DIR/settings.json`. If the `statusLine` key is missing (the user m
 
 Only update settings.json if the key is missing AND the user confirms. Do not overwrite an existing key.
 
-### 7. Confirm success
+### 8. Confirm success
 
 Tell the user:
 
@@ -137,5 +190,6 @@ Tell the user:
 >
 > Line 1 modules: [list]
 > Line 2 modules: [list, or "none (single-line layout)"]
+> Theme: [chosen theme name]
 >
 > Changes take effect at next session start (restart Claude Code).

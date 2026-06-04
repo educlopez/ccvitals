@@ -64,4 +64,10 @@ pressure_json=$(printf '%s' "$base_json" | jq \
 label "❯ Context pressure — it warns you before /compact does"
 render '{"modules":["directory","model","context","usage"]}' "$pressure_json"
 echo ""
+sleep 3
+
+label "❯ Themes — tokyo-night, catppuccin, dracula, nord"
+for theme in tokyo-night catppuccin dracula nord; do
+    render "{\"modules\":[\"directory\",\"model\",\"context\",\"usage\",\"git\"],\"theme\":\"$theme\"}" "$base_json"
+done
 sleep 4

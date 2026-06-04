@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-06-04
+
+### Added
+
+- **Theming system** — set `"theme"` in `~/.claude/.statusline-config.json` to switch color presets without touching any code
+- **Built-in presets**: `default` (legacy 16-color ANSI, backward compatible), `tokyo-night`, `catppuccin`, `dracula`, `nord`, `mono` (bold/white, no color)
+- **Custom colors** — set `"theme": "custom"` with a `"colors"` object containing any of the 7 color keys (`red`, `green`, `blue`, `yellow`, `cyan`, `gray`, `magenta`) as `#RRGGBB` hex strings; missing keys fall back to defaults
+- **Truecolor support** — preset/custom colors use `\033[38;2;R;G;Bm` SGR sequences; `default` and `mono` continue to use the classic 16-color codes
+- **`hex_to_ansi` helper** — bash-3.2-compatible hex-to-truecolor conversion (no associative arrays)
+- Theme selection added to `/ccvitals:setup` (step 5) and `/ccvitals:configure` (step 5)
+- Theme showcase scene in the demo GIF (`assets/demo.tape` + `assets/demo.sh`)
+
+### Fixed
+
+- The `usage` module now renders directly from stdin `rate_limits` without requiring a successful OAuth fetch first — previously the stdin preference only applied after a cache file existed, so the module stayed empty when API credentials were unavailable or the API was rate-limiting
+- The plan badge is omitted (instead of rendering an empty gray gap) when the subscription type is unknown
+
 ## [1.4.0] - 2026-06-04
 
 ### Added
@@ -83,6 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/educlopez/ccvitals/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/educlopez/ccvitals/compare/v1.3.0...v1.4.0
 [1.0.0]: https://github.com/educlopez/ccvitals/releases/tag/v1.0.0

@@ -69,24 +69,48 @@ Based on the preset:
 
 There is no `modules_line2` in the setup flow (single-line layout). Use `/ccvitals:configure` to set up a two-line layout later.
 
-### 5. Write `~/.claude/.statusline-config.json`
+### 5. Ask which theme to use
 
-Write the file at `$CONFIG_DIR/.statusline-config.json` using Bash with the following JSON shape (this matches exactly what install.sh writes):
+Use AskUserQuestion to ask:
+
+> Which color theme would you like?
+>
+> **1) default** — classic terminal 16-color palette (backward compatible)
+> **2) tokyo-night** — blue/purple night palette (Tokyo Night)
+> **3) catppuccin** — soft pastel palette (Catppuccin Mocha)
+> **4) dracula** — high-contrast dark palette (Dracula)
+> **5) nord** — arctic, cool-toned palette (Nord)
+> **6) mono** — bold/white only, no color (minimal setups)
+>
+> Enter 1–6 (or press Enter for default).
+
+Save the chosen theme name as `CHOSEN_THEME`. If the user presses Enter or enters 1, set `CHOSEN_THEME="default"`.
+
+### 6. Write `~/.claude/.statusline-config.json`
+
+Write the file at `$CONFIG_DIR/.statusline-config.json` using Bash. Include the `theme` key (omit it when `CHOSEN_THEME` is `"default"` to keep the config minimal):
 
 ```json
 {
-  "modules": ["directory", "model", "context", "usage", "git"]
+  "modules": ["directory", "model", "context", "usage", "git"],
+  "theme": "tokyo-night"
 }
 ```
 
-Replace the array contents with the chosen modules. Example Bash write:
+Replace the module array with the chosen modules and the theme with `CHOSEN_THEME`. Example Bash write:
 
 ```bash
+# With a named theme:
+jq -n --argjson mods '["directory","model","context","usage","git"]' \
+  --arg theme 'tokyo-night' \
+  '{"modules": $mods, "theme": $theme}' > "$CONFIG_DIR/.statusline-config.json"
+
+# Without a theme (default / user pressed Enter):
 jq -n --argjson mods '["directory","model","context","usage","git"]' \
   '{"modules": $mods}' > "$CONFIG_DIR/.statusline-config.json"
 ```
 
-### 6. Update `~/.claude/settings.json`
+### 7. Update `~/.claude/settings.json`
 
 Set the `statusLine` key to:
 
@@ -115,12 +139,13 @@ jq -n --argjson sl '{"type":"command","command":"bash /absolute/path/statusline.
   '{statusLine: $sl}' > "$CONFIG_DIR/settings.json"
 ```
 
-### 7. Confirm success
+### 8. Confirm success
 
 Tell the user:
 
 > ccvitals is installed! Enabled modules: [list chosen modules]
+> Theme: [chosen theme name]
 >
 > The statusline will appear at the next session start (restart Claude Code or open a new session).
 >
-> To reconfigure modules or set up a two-line layout later, run `/ccvitals:configure`.
+> To reconfigure modules, theme, or set up a two-line layout later, run `/ccvitals:configure`.
