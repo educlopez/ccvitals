@@ -125,3 +125,66 @@ _create_full_install() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"uninstalled successfully"* ]]
 }
+
+# ─── Symlink removal ───
+
+@test "uninstall: removes a symlink (not just regular files)" {
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    # Create a symlink instead of a regular file
+    local dummy_target
+    dummy_target=$(mktemp)
+    echo "#!/bin/bash" > "$dummy_target"
+    ln -s "$dummy_target" "$CLAUDE_CONFIG_DIR/statusline-command.sh"
+    [ -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+
+    run bash "$UNINSTALLER"
+    rm -f "$dummy_target"
+    [ "$status" -eq 0 ]
+
+    # Symlink should be gone
+    [ ! -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+    [ ! -e "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+}
+
+@test "uninstall: removes dangling symlink (target file deleted)" {
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    # Create a symlink pointing to a nonexistent target
+    ln -s "/nonexistent/target/statusline.sh" "$CLAUDE_CONFIG_DIR/statusline-command.sh"
+    # Confirm the dangling symlink exists ([ -L ] works on dangling links)
+    [ -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+
+    run bash "$UNINSTALLER"
+    [ "$status" -eq 0 ]
+
+    # Dangling symlink should be removed
+    [ ! -L "$CLAUDE_CONFIG_DIR/statusline-command.sh" ]
+}
+
+# ─── Backup created during settings removal ───
+
+@test "uninstall: creates backup of settings.json before removing statusLine key" {
+    _create_full_install
+
+    run bash "$UNINSTALLER"
+    [ "$status" -eq 0 ]
+
+    # Backup should exist
+    [ -f "$CLAUDE_CONFIG_DIR/settings.json.backup" ]
+    # Backup should contain the original statusLine key
+    local has_sl_in_backup
+    has_sl_in_backup=$(jq 'has("statusLine")' "$CLAUDE_CONFIG_DIR/settings.json.backup")
+    [ "$has_sl_in_backup" = "true" ]
+}
+
+# ─── Speed-cache directory removal ───
+
+@test "uninstall: removes .speed-cache directory if present" {
+    _create_full_install
+    mkdir -p "$CLAUDE_CONFIG_DIR/.speed-cache"
+    echo "cached-speed-data" > "$CLAUDE_CONFIG_DIR/.speed-cache/speed-abc123.txt"
+    [ -d "$CLAUDE_CONFIG_DIR/.speed-cache" ]
+
+    run bash "$UNINSTALLER"
+    [ "$status" -eq 0 ]
+    [ ! -d "$CLAUDE_CONFIG_DIR/.speed-cache" ]
+}

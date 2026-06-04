@@ -255,3 +255,74 @@ setup() {
     [[ "$output" == *".statusline-config.json"* ]]
     [[ "$output" == *"settings.json"* ]]
 }
+
+# ─── Specific module selection ───
+
+@test "install: --modules=pace,cache writes exactly those two modules" {
+    run bash "$INSTALLER" --modules=pace,cache
+    [ "$status" -eq 0 ]
+
+    [ -f "$CLAUDE_CONFIG_DIR/.statusline-config.json" ]
+    local count
+    count=$(jq '.modules | length' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [ "$count" -eq 2 ]
+    local modules
+    modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [ "$modules" = "cache,pace" ]
+}
+
+@test "install: --line2 subset moves those modules to modules_line2 from line1" {
+    # All 3 in --modules; 2 of them go to line2. line1 should have only the 1 remainder.
+    run bash "$INSTALLER" --modules=model,context,git --line2=model,context
+    [ "$status" -eq 0 ]
+
+    local line1 line2
+    line1=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    line2=$(jq -r '.modules_line2 | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [ "$line1" = "git" ]
+    [ "$line2" = "context,model" ]
+}
+
+@test "install: --modules with unknown module name warns and drops it" {
+    run bash "$INSTALLER" --modules=model,unknownmodulexyz
+    [ "$status" -eq 0 ]
+    [ -f "$CLAUDE_CONFIG_DIR/.statusline-config.json" ]
+    # Known module kept, unknown dropped with a warning
+    local modules
+    modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [[ "$modules" == *"model"* ]]
+    [[ "$modules" != *"unknownmodulexyz"* ]]
+    [[ "$output" == *"Unknown module"* ]]
+}
+
+@test "install: --force overwrites existing .statusline-config.json" {
+    # Create existing config with different modules
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    echo '{"modules":["model"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+
+    run bash "$INSTALLER" --force --modules=context,git
+    [ "$status" -eq 0 ]
+
+    # Config should now have the new modules, not the old one
+    local modules
+    modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
+    [ "$modules" = "context,git" ]
+}
+
+@test "install: --force overwrites existing statusLine in settings.json" {
+    mkdir -p "$CLAUDE_CONFIG_DIR"
+    echo '{"statusLine":{"type":"command","command":"old-command"},"keep":"me"}' \
+        > "$CLAUDE_CONFIG_DIR/settings.json"
+
+    run bash "$INSTALLER" --force --all
+    [ "$status" -eq 0 ]
+
+    # statusLine command should now reference the new script
+    local cmd
+    cmd=$(jq -r '.statusLine.command' "$CLAUDE_CONFIG_DIR/settings.json")
+    [[ "$cmd" == *"statusline-command.sh"* ]]
+    # Other keys preserved
+    local keep
+    keep=$(jq -r '.keep' "$CLAUDE_CONFIG_DIR/settings.json")
+    [ "$keep" = "me" ]
+}

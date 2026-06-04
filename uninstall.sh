@@ -55,12 +55,18 @@ else
     info "No settings.json found"
 fi
 
-# --- Remove cache directory ---
+# --- Remove cache directories ---
 if [ -d "$cache_dir" ]; then
     rm -rf "$cache_dir"
     ok "Removed cache directory $cache_dir"
 else
     info "No cache directory found"
+fi
+
+speed_cache_dir="$config_dir/.speed-cache"
+if [ -d "$speed_cache_dir" ]; then
+    rm -rf "$speed_cache_dir"
+    ok "Removed speed cache directory $speed_cache_dir"
 fi
 
 # --- Done ---

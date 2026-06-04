@@ -310,8 +310,18 @@ SELECTED_MODULES=""
 LINE2_MODULES=""
 
 if [ "$SKIP_MENU" = true ] && [ -n "$MODULES_ARG" ]; then
-    # From --modules or --all flag
-    SELECTED_MODULES="$MODULES_ARG"
+    # From --modules or --all flag — drop unknown module names with a warning
+    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache "
+    VALIDATED=""
+    OLD_IFS="$IFS"; IFS=','
+    for m in $MODULES_ARG; do
+        case "$KNOWN_MODULES" in
+            *" $m "*) VALIDATED="${VALIDATED:+$VALIDATED,}$m" ;;
+            *) warn "Unknown module '$m' — skipping" ;;
+        esac
+    done
+    IFS="$OLD_IFS"
+    SELECTED_MODULES="$VALIDATED"
 elif [ "$SKIP_MENU" = false ]; then
     # Try interactive menu
     CAN_INTERACT=false

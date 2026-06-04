@@ -781,3 +781,553 @@ setup() {
     clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | sed $'s/\033]8;;[^\033]*\033\\\\//g')
     [[ "$clean" == *"PR #42"* ]]
 }
+
+# ─── Theme system: exact first-color checks per preset ───
+
+@test "statusline: tokyo-night theme RED is #f7768e (247;118;142)" {
+    # The directory module uses BLUE; model uses CYAN. We need RED — use context at >=90% to trigger red.
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":185000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"],"theme":"tokyo-night"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # tokyo-night RED = #f7768e → 247;118;142
+    [[ "$output" == *$'\033[38;2;247;118;142m'* ]]
+}
+
+@test "statusline: catppuccin theme CYAN is #94e2d5 (148;226;213)" {
+    # model module uses CYAN; catppuccin CYAN = #94e2d5
+    echo '{"modules":["model"],"theme":"catppuccin"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # catppuccin CYAN = #94e2d5 → 148;226;213
+    [[ "$output" == *$'\033[38;2;148;226;213m'* ]]
+}
+
+@test "statusline: dracula theme CYAN is #8be9fd (139;233;253)" {
+    echo '{"modules":["model"],"theme":"dracula"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # dracula CYAN = #8be9fd → 139;233;253
+    [[ "$output" == *$'\033[38;2;139;233;253m'* ]]
+}
+
+@test "statusline: nord theme CYAN is #88c0d0 (136;192;208)" {
+    echo '{"modules":["model"],"theme":"nord"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # nord CYAN = #88c0d0 → 136;192;208
+    [[ "$output" == *$'\033[38;2;136;192;208m'* ]]
+}
+
+@test "statusline: custom theme partial override — only red set, blue stays ANSI default" {
+    # With only red set, blue remains the ANSI default \033[0;34m (not truecolor)
+    echo '{"modules":["directory","context"],"theme":"custom","colors":{"red":"#ff0000"}}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    # Use fixture with 90%+ usage to trigger red warning color
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":185000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Custom red #ff0000 → 255;0;0 should appear (for the warning ⚠ color)
+    [[ "$output" == *$'\033[38;2;255;0;0m'* ]]
+    # BLUE for directory should remain the legacy ANSI code, NOT a truecolor sequence for blue
+    # (since only red was customized)
+    [[ "$output" == *$'\033[0;34m'* ]]
+}
+
+@test "statusline: custom theme with invalid hex value does not crash (status 0)" {
+    # "notahex" is not a valid #RRGGBB — hex_to_ansi will printf garbage but must not abort
+    echo '{"modules":["model"],"theme":"custom","colors":{"red":"notahex"}}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    # Must not crash
+    [ "$status" -eq 0 ]
+    # Content still present
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+}
+
+# ─── Usage module: stdin fast-path and plan badge ───
+
+@test "statusline: usage renders from stdin rate_limits without curl (fast-path)" {
+    # rate_limits.five_hour present → fast-path: no curl needed, renders immediately
+    # curl mock is set to fail (exit 1) in setup, so if usage renders it used stdin
+    local future_resets=$(( $(date +%s) + 3600 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":42,\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"42%"* ]]
+}
+
+@test "statusline: usage plan badge shown when last_good cache has plan" {
+    # Pre-seed a last_good cache file with plan=max
+    local cache_dir="$CLAUDE_CONFIG_DIR/.usage-cache"
+    mkdir -p "$cache_dir"
+    local future_resets=$(( $(date +%s) + 3600 ))
+    local ts=$(date +%s)
+    jq -n --arg ts "$ts" --arg plan "max" \
+        '{data:{five_hour:{utilization:30,resets_at:"2099-01-01T00:00:00Z"},seven_day:{utilization:10}},timestamp:($ts|tonumber),plan:$plan,error:false}' \
+        > "$cache_dir/usage-last-good.json"
+    # Provide stdin rate_limits so fast-path triggers (reads last_good for plan badge)
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"Max"* ]]
+}
+
+@test "statusline: usage plan badge omitted when no cache exists" {
+    # No cache file → fast-path but last_good absent → no plan badge
+    local future_resets=$(( $(date +%s) + 3600 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":20,\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should NOT show any plan badge (Max/Pro/Team)
+    [[ "$clean" != *"Max"* ]]
+    [[ "$clean" != *"Pro"* ]]
+    [[ "$clean" != *"Team"* ]]
+    # But should still show the percentage
+    [[ "$clean" == *"20%"* ]]
+}
+
+@test "statusline: usage 7d shown when seven_day >= 70%" {
+    local future_resets=$(( $(date +%s) + 3600 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":${future_resets}},\"seven_day\":{\"used_percentage\":75}}}"
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"7d:"* ]]
+    [[ "$clean" == *"75%"* ]]
+}
+
+@test "statusline: usage 7d hidden when seven_day < 70%" {
+    local future_resets=$(( $(date +%s) + 3600 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":30,\"resets_at\":${future_resets}},\"seven_day\":{\"used_percentage\":65}}}"
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # 7d badge must not appear for < 70%
+    [[ "$clean" != *"7d:"* ]]
+}
+
+@test "statusline: usage hidden when five_hour absent and no cache" {
+    # No rate_limits.five_hour, no cache → module produces no output
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["usage"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Pace module: delta color thresholds and edge cases ───
+
+@test "statusline: pace delta exactly -10 shows yellow (not red)" {
+    # pace_delta = -10: within -10 threshold → yellow (not red)
+    # 5h window=18000s. Set resets_at = now + 9000 (2.5h remaining = 2.5h elapsed of 5h)
+    # elapsed_fraction = 0.5, expected = 50. used = 60 → delta = 50 - 60 = -10
+    local future_resets=$(( $(date +%s) + 9000 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":60,\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["pace"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"pace"* ]]
+    # delta = -10 → yellow, not red (no truecolor for red in default theme)
+    # The output should NOT contain the legacy red \033[0;31m
+    [[ "$output" != *$'\033[0;31m'* ]]
+}
+
+@test "statusline: pace delta -11 shows red" {
+    # delta <= -11 → red threshold crossed
+    # resets_at = now + 9000 (50% elapsed), expected = 50, used = 61 → delta = -11
+    local future_resets=$(( $(date +%s) + 9000 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":61,\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["pace"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"pace"* ]]
+    # delta = -11 → RED (legacy default \033[0;31m)
+    [[ "$output" == *$'\033[0;31m'* ]]
+}
+
+@test "statusline: pace hidden when resets_at is non-numeric string" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"rate_limits":{"five_hour":{"used_percentage":50,"resets_at":"not-a-number"}}}'
+    echo '{"modules":["pace"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: pace hidden when used_percentage absent" {
+    local future_resets=$(( $(date +%s) + 1800 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"resets_at\":${future_resets}}}}"
+    echo '{"modules":["pace"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: pace hidden when resets_at is far in future (> 5h window)" {
+    # resets_at far in future means remaining > 18000s → out of valid range → hidden
+    local far_future=$(( $(date +%s) + 100000 ))
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"rate_limits\":{\"five_hour\":{\"used_percentage\":50,\"resets_at\":${far_future}}}}"
+    echo '{"modules":["pace"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Cache module: edge cases ───
+
+@test "statusline: cache hidden when transcript file does not exist" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000},"transcript_path":"/nonexistent/path/transcript.jsonl"}'
+    echo '{"modules":["cache"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: cache hidden when transcript file is empty" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Empty file — no lines at all
+    : > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["cache"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: cache hidden when last line has no timestamp field" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"user","content":"hello"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["cache"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: cache parses fractional-seconds ISO timestamp" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Use current time with fractional seconds — cache should be fresh
+    local now_iso
+    now_iso=$(date -u +"%Y-%m-%dT%H:%M:%S.123456Z" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+    printf '{"timestamp":"%s","type":"assistant"}\n' "$now_iso" > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["cache"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Fractional seconds stripped correctly → fresh countdown, not "cold"
+    [[ "$clean" == *"cache"* ]]
+    [[ "$clean" != *"cache cold"* ]]
+}
+
+# ─── Context display: _fmt_k boundary values ───
+
+@test "statusline: context tokens mode formats < 1000 tokens as bare number" {
+    # current_tokens = 0+0+999 = 999 → should display "999"
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":999,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"],"context_display":"tokens"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should show "999/" (bare number, no k suffix)
+    [[ "$clean" == *"999/"* ]]
+}
+
+@test "statusline: context tokens mode formats 1000-99999 as decimal k" {
+    # current_tokens = 26000 (fixture) → 26.0k
+    echo '{"modules":["context"],"context_display":"tokens"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # 26000 → "26.0k"
+    [[ "$clean" == *"26.0k/"* ]]
+}
+
+@test "statusline: context tokens mode formats 100000+ tokens as integer k" {
+    # current_tokens = 150000 → 150k (integer k, no decimal)
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":150000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"],"context_display":"tokens"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # 150000 → "150k"
+    [[ "$clean" == *"150k/"* ]]
+}
+
+@test "statusline: context tokens mode formats 1M+ tokens as M" {
+    # current_tokens = 1500000 on 1M window → 1M (promotes to 1M tier)
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":1500000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"],"context_display":"tokens"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # 1500000 / 1000000 = 1 → "1M"
+    [[ "$clean" == *"1M/"* ]]
+}
+
+@test "statusline: context invalid context_display falls back to percent mode" {
+    echo '{"modules":["context"],"context_display":"bogus-value"}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Falls through to *) branch → percent mode
+    [[ "$clean" == *"13%"* ]]
+    [[ "$clean" != *"k/"* ]]
+}
+
+# ─── Context warning: ⚠ appears at >= 90% ───
+
+@test "statusline: context warning appears at 90% (>= 90 threshold)" {
+    # 180000/200000 = 90% exactly → should show ⚠
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":180000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⚠"* ]]
+}
+
+@test "statusline: context warning absent below 90% (89% does not warn)" {
+    # 89% → no warning
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":178000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}'
+    echo '{"modules":["context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Note: exceeds_200k_tokens field is NOT checked by context module; threshold is >= 90%
+    [[ "$clean" != *"⚠"* ]]
+}
+
+# ─── Git module: both ahead and behind; OSC8; no upstream; dirty spacing ───
+
+@test "statusline: git shows both ahead and behind when both nonzero" {
+    create_mock "git" 'case "$1" in
+        rev-parse) echo "true"; exit 0 ;;
+        branch) echo "main"; exit 0 ;;
+        status) exit 0 ;;  # clean
+        rev-list) printf "3\t2\n"; exit 0 ;;  # 3 behind, 2 ahead
+        remote) exit 1 ;;
+        *) exit 0 ;;
+    esac'
+    echo '{"modules":["git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | sed $'s/\033]8;;[^\033]*\033\\\\//g')
+    [[ "$clean" == *"↑2"* ]]
+    [[ "$clean" == *"↓3"* ]]
+}
+
+@test "statusline: git no upstream shows no ahead/behind indicators" {
+    # rev-list fails when no upstream → no ↑ or ↓
+    create_mock "git" 'case "$1" in
+        rev-parse) echo "true"; exit 0 ;;
+        branch) echo "feature-branch"; exit 0 ;;
+        status) exit 0 ;;  # clean
+        rev-list) exit 128 ;;  # no upstream
+        remote) exit 1 ;;
+        *) exit 0 ;;
+    esac'
+    echo '{"modules":["git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | sed $'s/\033]8;;[^\033]*\033\\\\//g')
+    [[ "$clean" == *"feature-branch"* ]]
+    [[ "$clean" != *"↑"* ]]
+    [[ "$clean" != *"↓"* ]]
+}
+
+@test "statusline: git OSC8 link present for https://github.com origin" {
+    create_mock "git" 'case "$1" in
+        rev-parse) echo "true"; exit 0 ;;
+        branch) echo "main"; exit 0 ;;
+        status) exit 0 ;;
+        rev-list) exit 1 ;;
+        remote)
+            # remote get-url origin
+            echo "https://github.com/user/repo.git"; exit 0 ;;
+        *) exit 0 ;;
+    esac'
+    echo '{"modules":["git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # OSC 8 hyperlink sequence should be present
+    [[ "$output" == *$'\033]8;;https://github.com/user/repo/tree/main'* ]]
+}
+
+@test "statusline: git no OSC8 link when origin is a local path" {
+    create_mock "git" 'case "$1" in
+        rev-parse) echo "true"; exit 0 ;;
+        branch) echo "main"; exit 0 ;;
+        status) exit 0 ;;
+        rev-list) exit 1 ;;
+        remote)
+            echo "/home/user/local-repo"; exit 0 ;;
+        *) exit 0 ;;
+    esac'
+    echo '{"modules":["git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # No OSC 8 hyperlink for local paths
+    [[ "$output" != *$'\033]8;;'* ]]
+}
+
+@test "statusline: dirty repo shows space-pipe-space separator between branch and file count" {
+    create_mock "git" 'case "$1" in
+        rev-parse) echo "true"; exit 0 ;;
+        branch) echo "main"; exit 0 ;;
+        status) printf "M  file1.txt\n"; exit 0 ;;
+        diff) printf "5\t2\tfile1.txt\n"; exit 0 ;;
+        rev-list) exit 1 ;;
+        remote) exit 1 ;;
+        *) exit 0 ;;
+    esac'
+    echo '{"modules":["git"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | sed $'s/\033]8;;[^\033]*\033\\\\//g')
+    # Pattern: "(branch | N files" — note the space before |
+    [[ "$clean" == *"(main | 1 files"* ]]
+}
+
+# ─── Speed module: corrupt cache and negative delta ───
+
+@test "statusline: speed does not crash on empty (corrupt) cache file" {
+    local session_id="speed-corrupt-test-$$"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000,\"total_input_tokens\":5000,\"total_output_tokens\":500},\"session_id\":\"${session_id}\"}"
+    echo '{"modules":["speed"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    # Pre-create an empty (corrupt) cache file
+    local speed_dir="$CLAUDE_CONFIG_DIR/.speed-cache"
+    mkdir -p "$speed_dir"
+    local safe_id
+    safe_id=$(printf '%s' "$session_id" | tr -dc 'a-zA-Z0-9_-' | cut -c1-40)
+    : > "$speed_dir/speed-${safe_id}.txt"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Output should be empty (corrupt → treated as first render / write baseline)
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: speed negative delta resets baseline without showing tok/s" {
+    local session_id="speed-neg-delta-test-$$"
+    echo '{"modules":["speed"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    local speed_dir="$CLAUDE_CONFIG_DIR/.speed-cache"
+    mkdir -p "$speed_dir"
+    local safe_id
+    safe_id=$(printf '%s' "$session_id" | tr -dc 'a-zA-Z0-9_-' | cut -c1-40)
+    local sp_file="$speed_dir/speed-${safe_id}.txt"
+    # Seed cache: previously 10000 tokens, 60 seconds ago
+    local old_epoch=$(( $(date +%s) - 60 ))
+    printf '%s\t%s\n' "10000" "$old_epoch" > "$sp_file"
+    # Send a lower token count (5000 < 10000 → negative delta → compact occurred)
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000,\"total_input_tokens\":4500,\"total_output_tokens\":500},\"session_id\":\"${session_id}\"}"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Negative delta → reset baseline, no output
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+    # And the cache file must have been rewritten (new baseline)
+    [ -f "$sp_file" ]
+}
+
+# ─── Two-line layout: both lines get theme colors ───
+
+@test "statusline: two-line layout with theme — both lines contain color sequences" {
+    echo '{"modules":["model"],"modules_line2":["context"],"theme":"tokyo-night"}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    # Both lines should contain truecolor sequences from tokyo-night
+    [[ "${lines[0]}" == *$'\033[38;2;'* ]]
+    [[ "${lines[1]}" == *$'\033[38;2;'* ]]
+}
+
+@test "statusline: two-line layout — line2 modules absent from line1" {
+    echo '{"modules":["model"],"modules_line2":["context"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    # Line1 must not contain the percentage (context is on line2)
+    local clean1
+    clean1=$(echo "${lines[0]}" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean1" != *"13%"* ]]
+    # Line2 must contain percentage
+    local clean2
+    clean2=$(echo "${lines[1]}" | sed 's/\x1b\[[^m]*m//g')
+    [[ "$clean2" == *"13%"* ]]
+}
+
+# ─── Composition: separator count matches module count - 1 ───
+
+@test "statusline: separator count equals enabled-module count minus one" {
+    # Use 3 modules: directory, model, context → expect exactly 2 " | " separators
+    echo '{"modules":["directory","model","context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    # Strip ANSI SGR and OSC 8 sequences, then count pipe separators
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | sed $'s/\033]8;;[^\033]*\033\\\\//g')
+    # Count " | " occurrences
+    local pipe_count
+    pipe_count=$(echo "$clean" | grep -o ' | ' | wc -l | xargs)
+    [ "$pipe_count" -eq 2 ]
+}
+
+# ─── Install: additional coverage ───
+
+# NOTE: These tests are in test/install.bats but we add them here as a cross-check
+# for statusline rendering post-install config. The install-specific tests live in install.bats.
