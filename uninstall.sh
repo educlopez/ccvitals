@@ -24,6 +24,7 @@ script_file="$config_dir/statusline-command.sh"
 subagent_script_file="$config_dir/subagent-statusline.sh"
 statusline_config="$config_dir/.statusline-config.json"
 cache_dir="$config_dir/.usage-cache"
+state_dir="$config_dir/.ccvitals-state"
 
 info "Claude config directory: $config_dir"
 
@@ -77,6 +78,59 @@ speed_cache_dir="$config_dir/.speed-cache"
 if [ -d "$speed_cache_dir" ]; then
     rm -rf "$speed_cache_dir"
     ok "Removed speed cache directory $speed_cache_dir"
+fi
+
+# --- Remove ccvitals hook entries from settings.json ---
+# Only removes entries whose .command contains "ccvitals-hook.sh".
+# All other hook entries are preserved.
+if [ -f "$settings_file" ]; then
+    # Detection: traverse nested schema — each event array contains group objects
+    # with an inner .hooks[] array. Check any inner command contains "ccvitals-hook".
+    _has_hooks=$(jq -r '
+        if .hooks then
+            [.hooks | to_entries[] | .value[] | .hooks[]? | select(.command? and (.command | test("ccvitals-hook")))] | length
+        else 0 end
+    ' "$settings_file" 2>/dev/null)
+    if [ "${_has_hooks:-0}" -gt 0 ] 2>/dev/null; then
+        cp "$settings_file" "$settings_file.backup"
+        # Fix 2: capture to var first, check non-empty, then write — avoids truncation
+        # if jq fails (which would leave a 0-byte settings.json with no restore).
+        _cleaned=$(jq '
+            if .hooks then
+                .hooks |= (
+                    to_entries
+                    | map(
+                        # Within each group, remove inner hook entries whose command
+                        # contains "ccvitals-hook"; drop the group if inner hooks is empty
+                        .value |= map(
+                            .hooks |= map(select(.command? | test("ccvitals-hook") | not))
+                            | select((.hooks | length) > 0)
+                        )
+                      )
+                    | map(select(.value | length > 0))
+                    | if length == 0 then {} else from_entries end
+                  )
+                | if (.hooks | length) == 0 then del(.hooks) else . end
+            else . end
+        ' "$settings_file.backup" 2>/dev/null)
+        if [ -n "$_cleaned" ]; then
+            printf '%s\n' "$_cleaned" > "$settings_file"
+            ok "Removed ccvitals hook entries from settings.json"
+        else
+            warn "Failed to clean hook entries from settings.json (jq error?) — restoring backup"
+            cp "$settings_file.backup" "$settings_file" 2>/dev/null || true
+        fi
+        unset _cleaned
+    else
+        info "No ccvitals hook entries found in settings.json (already clean)"
+    fi
+    unset _has_hooks
+fi
+
+# --- Remove state directory ---
+if [ -d "$state_dir" ]; then
+    rm -rf "$state_dir"
+    ok "Removed state directory $state_dir"
 fi
 
 # --- Done ---

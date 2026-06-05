@@ -56,6 +56,7 @@ MOD_DESC_25="Thinking effort  ✦ xhigh"
 MOD_DESC_26="MCP servers      ⬡ 4"
 MOD_DESC_27="Historical spend  7d \$12.40 · 30d \$48"
 MOD_DESC_28="Workflows        ⟳ 1 wf"
+MOD_DESC_29="Session title    § my-refactor"
 
 # ─── Phase 1.1: Color setup with NO_COLOR / TTY detection ───
 
@@ -136,6 +137,7 @@ get_mod_desc() {
         22) echo "$MOD_DESC_22" ;; 23) echo "$MOD_DESC_23" ;; 24) echo "$MOD_DESC_24" ;;
         25) echo "$MOD_DESC_25" ;; 26) echo "$MOD_DESC_26" ;;
         27) echo "$MOD_DESC_27" ;; 28) echo "$MOD_DESC_28" ;;
+        29) echo "$MOD_DESC_29" ;;
     esac
 }
 
@@ -151,6 +153,7 @@ get_mod_name() {
         22) echo "daily"     ;; 23) echo "compactions" ;; 24) echo "tokens" ;;
         25) echo "thinking"  ;; 26) echo "mcp" ;;
         27) echo "spend"     ;; 28) echo "workflows" ;;
+        29) echo "session" ;;
     esac
 }
 
@@ -179,9 +182,12 @@ Options:
                      codegraph, lines, mode, cost, duration, speed, vim,
                      agent, pr, weekly, pace, cache, tools, agents, todos,
                      daily, compactions, tokens,
-                     thinking, mcp, spend, workflows
+                     thinking, mcp, spend, workflows, session
   --line2=LIST       Render these modules on a second row (comma-separated).
                      They are placed in modules_line2; the rest stay on line 1.
+  --hooks            Register ccvitals-hook.sh in settings.json hooks
+                     (SessionStart, MessageDisplay, TaskCreated, PostCompact, Stop)
+                     Required for the session module and future hook-powered features.
 
 Examples:
   ./install.sh                          # interactive install
@@ -219,6 +225,11 @@ Modules:
   mcp          Show configured MCP server count (⬡ 4); opt-in
   spend        Show 7-day and 30-day historical spend (7d \$12.40 · 30d \$48); opt-in
   workflows    Show running Workflow orchestrations (⟳ 1 wf); opt-in
+  session      Show session title from hooks (§ my-refactor); requires --hooks; opt-in
+
+Hooks integration (opt-in):
+  ./install.sh --hooks         wire up ccvitals-hook.sh into settings.json hooks
+  ./uninstall.sh               removes hook entries written by ccvitals
 
 Update:
   cd $REPO_DIR && git pull
@@ -236,14 +247,16 @@ FORCE=false
 SKIP_MENU=false
 MODULES_ARG=""
 LINE2_ARG=""
+INSTALL_HOOKS=false
 
 for arg in "$@"; do
     case "$arg" in
         --help|-h) show_help ;;
         --force)   FORCE=true ;;
-        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache,tools,agents,todos,daily,compactions,tokens,thinking,mcp,spend,workflows" ;;
+        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache,tools,agents,todos,daily,compactions,tokens,thinking,mcp,spend,workflows,session" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --line2=*) LINE2_ARG="${arg#--line2=}" ;;
+        --hooks)   INSTALL_HOOKS=true ;;
         --version) echo "ccvitals v$STATUSLINE_VERSION"; exit 0 ;;
     esac
 done
@@ -252,6 +265,7 @@ done
 
 CURRENT_STEP=0
 TOTAL_STEPS=6
+[ "$INSTALL_HOOKS" = true ] && TOTAL_STEPS=7
 
 step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -344,7 +358,7 @@ LINE2_MODULES=""
 
 if [ "$SKIP_MENU" = true ] && [ -n "$MODULES_ARG" ]; then
     # From --modules or --all flag — drop unknown module names with a warning
-    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache tools agents todos daily compactions tokens thinking mcp spend workflows "
+    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache tools agents todos daily compactions tokens thinking mcp spend workflows session "
     VALIDATED=""
     OLD_IFS="$IFS"; IFS=','
     for m in $MODULES_ARG; do
@@ -371,6 +385,7 @@ elif [ "$SKIP_MENU" = false ]; then
         en_10=0; en_11=0; en_12=0; en_13=0; en_14=0; en_15=0; en_16=0
         en_17=0; en_18=0; en_19=0; en_20=0; en_21=0
         en_22=0; en_23=0; en_24=0
+        en_25=0; en_26=0; en_27=0; en_28=0; en_29=0
 
         get_en() {
             case "$1" in
@@ -382,6 +397,8 @@ elif [ "$SKIP_MENU" = false ]; then
                 16) echo "$en_16" ;; 17) echo "$en_17" ;; 18) echo "$en_18" ;;
                 19) echo "$en_19" ;; 20) echo "$en_20" ;; 21) echo "$en_21" ;;
                 22) echo "$en_22" ;; 23) echo "$en_23" ;; 24) echo "$en_24" ;;
+                25) echo "$en_25" ;; 26) echo "$en_26" ;; 27) echo "$en_27" ;;
+                28) echo "$en_28" ;; 29) echo "$en_29" ;;
             esac
         }
 
@@ -411,6 +428,11 @@ elif [ "$SKIP_MENU" = false ]; then
                 22) if [ "$en_22" -eq 1 ]; then en_22=0; else en_22=1; fi ;;
                 23) if [ "$en_23" -eq 1 ]; then en_23=0; else en_23=1; fi ;;
                 24) if [ "$en_24" -eq 1 ]; then en_24=0; else en_24=1; fi ;;
+                25) if [ "$en_25" -eq 1 ]; then en_25=0; else en_25=1; fi ;;
+                26) if [ "$en_26" -eq 1 ]; then en_26=0; else en_26=1; fi ;;
+                27) if [ "$en_27" -eq 1 ]; then en_27=0; else en_27=1; fi ;;
+                28) if [ "$en_28" -eq 1 ]; then en_28=0; else en_28=1; fi ;;
+                29) if [ "$en_29" -eq 1 ]; then en_29=0; else en_29=1; fi ;;
             esac
         }
 
@@ -418,7 +440,7 @@ elif [ "$SKIP_MENU" = false ]; then
             echo ""
             echo -e "${BOLD}ccvitals — Choose your modules:${NC}"
             echo ""
-            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29; do
                 local desc
                 desc=$(get_mod_desc "$i")
                 if [ "$(get_en "$i")" -eq 1 ]; then
@@ -432,7 +454,7 @@ elif [ "$SKIP_MENU" = false ]; then
         }
 
         # ─── Phase 1.4: ANSI escapes instead of tput ───
-        MENU_LINES=29
+        MENU_LINES=34
         draw_menu
 
         while true; do
@@ -451,13 +473,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     en_10=1; en_11=1; en_12=1; en_13=1; en_14=1; en_15=1; en_16=1
                     en_17=1; en_18=1; en_19=1; en_20=1; en_21=1
                     en_22=1; en_23=1; en_24=1
+                    en_25=1; en_26=1; en_27=1; en_28=1; en_29=1
                     # Redraw using ANSI escapes (Phase 1.4)
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
                     done
                     draw_menu
                     ;;
-                [1-9]|1[0-9]|2[0-4])
+                [1-9]|1[0-9]|2[0-9])
                     toggle "$choice"
                     for _ in $(seq 1 $((MENU_LINES + 1))); do
                         printf '\033[A\033[2K' 2>/dev/null || true
@@ -465,14 +488,14 @@ elif [ "$SKIP_MENU" = false ]; then
                     draw_menu
                     ;;
                 *)
-                    echo -e "  ${YELLOW}Enter 1-24, 'a' for all, or Enter to confirm${NC}"
+                    echo -e "  ${YELLOW}Enter 1-29, 'a' for all, or Enter to confirm${NC}"
                     ;;
             esac
         done
 
         # Build selected modules string
         result=""
-        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24; do
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29; do
             if [ "$(get_en "$i")" -eq 1 ]; then
                 name=$(get_mod_name "$i")
                 if [ -n "$result" ]; then
@@ -491,7 +514,7 @@ elif [ "$SKIP_MENU" = false ]; then
             l2_result=""
             for tok in $l2_choice; do
                 case "$tok" in
-                    [1-9]|1[0-9]|2[0-4])
+                    [1-9]|1[0-9]|2[0-9])
                         if [ "$(get_en "$tok")" -eq 1 ]; then
                             n=$(get_mod_name "$tok")
                             if [ -n "$l2_result" ]; then l2_result="$l2_result,$n"; else l2_result="$n"; fi
@@ -500,6 +523,17 @@ elif [ "$SKIP_MENU" = false ]; then
                 esac
             done
             LINE2_MODULES="$l2_result"
+        fi
+
+        # Optional: install hooks (requires hook script)
+        if [ "$INSTALL_HOOKS" = false ]; then
+            echo ""
+            echo -ne "  ${BOLD}Hooks integration?${NC} Wire ccvitals-hook.sh for session/turn tracking (y/N): "
+            if read -r hooks_choice < /dev/tty 2>/dev/null; then
+                case "$hooks_choice" in
+                    y|Y|yes|YES) INSTALL_HOOKS=true; TOTAL_STEPS=7 ;;
+                esac
+            fi
         fi
     else
         # Non-interactive, no flags: default all
@@ -611,16 +645,103 @@ if [ -f "$settings_file" ]; then
     else
         cp "$settings_file" "$settings_file.backup"
         info "Backed up settings.json to settings.json.backup"
-        jq --argjson sl "$statusline_setting" --argjson sa "$subagent_setting" \
-            '.statusLine = $sl | .subagentStatusLine = $sa' "$settings_file.backup" > "$settings_file"
-        track_file "$settings_file"
-        ok "Updated settings.json with statusLine and subagentStatusLine configuration"
+        _updated=$(jq --argjson sl "$statusline_setting" --argjson sa "$subagent_setting" \
+            '.statusLine = $sl | .subagentStatusLine = $sa' "$settings_file.backup" 2>/dev/null)
+        if [ -n "$_updated" ]; then
+            printf '%s\n' "$_updated" > "$settings_file"
+            track_file "$settings_file"
+            ok "Updated settings.json with statusLine and subagentStatusLine configuration"
+        else
+            warn "settings.json appears malformed (jq error) — skipping statusLine update, file untouched"
+            cp "$settings_file.backup" "$settings_file" 2>/dev/null || true
+        fi
+        unset _updated
     fi
 else
     jq -n --argjson sl "$statusline_setting" --argjson sa "$subagent_setting" \
         '{statusLine: $sl, subagentStatusLine: $sa}' > "$settings_file"
     track_file "$settings_file"
     ok "Created settings.json with statusLine and subagentStatusLine configuration"
+fi
+
+# ─── Step — Wire hooks (opt-in) ───
+
+if [ "$INSTALL_HOOKS" = true ]; then
+    step "Wiring ccvitals hooks into settings.json..."
+
+    HOOK_SCRIPT="$REPO_DIR/ccvitals-hook.sh"
+    if [ ! -f "$HOOK_SCRIPT" ]; then
+        warn "ccvitals-hook.sh not found at $HOOK_SCRIPT — skipping hooks wiring"
+    else
+        hook_cmd="bash $HOOK_SCRIPT"
+
+        # Events to register
+        hook_events="SessionStart MessageDisplay TaskCreated PostCompact Stop"
+
+        # Build the wrapper group entry: {"hooks":[{"type":"command","command":"<cmd>"}]}
+        # This matches Claude Code's actual settings.json hooks schema where each event
+        # array contains group objects with an inner "hooks" array.
+        wrapper_entry=$(jq -n --arg cmd "$hook_cmd" '{hooks:[{type:"command",command:$cmd}]}')
+
+        if [ -f "$settings_file" ]; then
+            cp "$settings_file" "$settings_file.backup"
+            info "Backed up settings.json to settings.json.backup"
+
+            # Merge wrapper group into each event's array.
+            # Dedup check: an event already has our hook if any existing group's inner
+            # .hooks[] contains an entry whose .command matches ours.
+            # Preserves all user groups untouched; only appends our group if missing.
+            _merged=$(jq \
+                --argjson wrapper "$wrapper_entry" \
+                --arg cmd "$hook_cmd" \
+                --argjson events '["SessionStart","MessageDisplay","TaskCreated","PostCompact","Stop"]' \
+                '
+                . as $root
+                | reduce $events[] as $ev (
+                    $root;
+                    if (.hooks[$ev] | type) == "array" then
+                        if (.hooks[$ev] | map(.hooks[]? | select(.command == $cmd)) | length) > 0 then
+                            # Already registered inside a group — leave untouched
+                            .
+                        else
+                            .hooks[$ev] += [$wrapper]
+                        end
+                    else
+                        # No existing array for this event — create it
+                        .hooks[$ev] = [$wrapper]
+                    end
+                  )
+                ' "$settings_file.backup" 2>/dev/null)
+
+            if [ -n "$_merged" ]; then
+                printf '%s\n' "$_merged" > "$settings_file"
+                track_file "$settings_file"
+                ok "Registered ccvitals-hook.sh for events: $hook_events"
+            else
+                warn "Failed to merge hook entries into settings.json (jq error?) — hooks not wired"
+                cp "$settings_file.backup" "$settings_file" 2>/dev/null || true
+            fi
+            unset _merged
+        else
+            # No settings.json yet — create it with hooks only
+            _new=$(jq -n --argjson wrapper "$wrapper_entry" \
+                --argjson events '["SessionStart","MessageDisplay","TaskCreated","PostCompact","Stop"]' \
+                '
+                reduce $events[] as $ev (
+                    {};
+                    .hooks[$ev] = [$wrapper]
+                )
+                ' 2>/dev/null)
+            if [ -n "$_new" ]; then
+                printf '%s\n' "$_new" > "$settings_file"
+                track_file "$settings_file"
+                ok "Created settings.json with ccvitals hook entries"
+            else
+                warn "Failed to create settings.json with hook entries (jq error?) — hooks not wired"
+            fi
+            unset _new
+        fi
+    fi
 fi
 
 # ─── Step — Done ───
@@ -646,6 +767,9 @@ echo "    Script:         $script_dest (symlink -> $SOURCE_SCRIPT)"
 echo "    Subagent script: $subagent_script_dest (symlink -> $SOURCE_SUBAGENT_SCRIPT)"
 echo "    Config:         $statusline_config"
 echo "    Settings:       $settings_file (statusLine + subagentStatusLine keys)"
+if [ "$INSTALL_HOOKS" = true ]; then
+echo "    Hooks:          ccvitals-hook.sh wired for SessionStart, MessageDisplay, TaskCreated, PostCompact, Stop"
+fi
 echo ""
 echo "  Enabled modules: $(echo "$SELECTED_MODULES" | tr ',' ' ')"
 echo ""

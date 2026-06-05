@@ -81,10 +81,22 @@ mod_thinking=false
 mod_mcp=false
 mod_spend=false
 mod_workflows=false
+mod_session=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
 line2_set=""
+
+# Default display order (matches the fixed route() call sequence below).
+# Used as fallback when module_order is absent and as the tail for unlisted modules.
+_DEFAULT_MODULE_ORDER="directory model context usage rtk mode git lines codegraph cost duration speed vim agent pr weekly pace cache tools agents todos workflows daily spend compactions tokens thinking mcp session"
+
+# Full set of valid module names (for validation of user-supplied module_order values).
+_KNOWN_MODULES="directory model context usage rtk mode git lines codegraph cost duration speed vim agent pr weekly pace cache tools agents todos workflows daily spend compactions tokens thinking mcp session"
+
+# module_order: the effective display order for this render, built below.
+# Space-delimited, bash-3.2 safe.
+_module_order=""
 
 if [ -n "$effective_config" ]; then
     modules=$(printf '%s' "$effective_config" | jq -r '.modules[]?' 2>/dev/null)
@@ -131,11 +143,41 @@ if [ -n "$effective_config" ]; then
                 mcp)        mod_mcp=true ;;
                 spend)      mod_spend=true ;;
                 workflows)  mod_workflows=true ;;
+                session)    mod_session=true ;;
             esac
         done <<< "$modules
 $modules2"
     fi
+
+    # --- module_order config key ---
+    # Optional JSON array of module names controlling display order.
+    # Values are validated against _KNOWN_MODULES; unknown names are silently dropped
+    # (forward compatibility). Config values are consumed as jq output data only —
+    # never passed to eval or executed.
+    _cfg_order=$(printf '%s' "$effective_config" | jq -r '.module_order[]?' 2>/dev/null)
+    if [ -n "$_cfg_order" ]; then
+        # Build validated order list: only accept names present in _KNOWN_MODULES.
+        _validated_order=""
+        while IFS= read -r _om; do
+            case " $_KNOWN_MODULES " in
+                *" $_om "*) _validated_order="${_validated_order:+$_validated_order }$_om" ;;
+            esac
+        done <<< "$_cfg_order"
+        # Append any enabled module NOT already listed (preserve default tail order).
+        for _dm in $_DEFAULT_MODULE_ORDER; do
+            case " $_validated_order " in
+                *" $_dm "*) ;;  # already listed — skip
+                *) _validated_order="${_validated_order:+$_validated_order }$_dm" ;;
+            esac
+        done
+        _module_order="$_validated_order"
+        unset _validated_order _dm
+    fi
+    unset _cfg_order _om
 fi
+
+# If no custom order was configured, use the default order.
+[ -z "$_module_order" ] && _module_order="$_DEFAULT_MODULE_ORDER"
 
 # Extract information from JSON
 model_name=$(echo "$input" | jq -r '.model.display_name')
@@ -1869,6 +1911,38 @@ if [ "$mod_tokens" = true ]; then
     fi
 fi
 
+# --- Session module (hook-written state: title + optional turn counter) ---
+# Reads ~/.claude/.ccvitals-state/<session_id>.json written by ccvitals-hook.sh.
+# Graceful: hooks not installed → state file absent → module silently hidden.
+# Config keys:
+#   session_turns: true  → append turn counter (§ my-refactor ·12)
+session_info=""
+if [ "$mod_session" = true ]; then
+    _ss_session=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    if [ -n "$_ss_session" ]; then
+        _ss_safe=$(printf '%s' "$_ss_session" | tr -dc 'a-zA-Z0-9_-' | cut -c1-80)
+        _ss_state_dir="${config_dir}/.ccvitals-state"
+        _ss_file="${_ss_state_dir}/${_ss_safe}.json"
+        if [ -f "$_ss_file" ]; then
+            _ss_raw=$(cat "$_ss_file" 2>/dev/null)
+            if [ -n "$_ss_raw" ]; then
+                _ss_title=$(printf '%s' "$_ss_raw" | jq -r '.session_title // empty' 2>/dev/null)
+                _ss_turns=$(printf '%s' "$_ss_raw" | jq -r '.message_count // empty' 2>/dev/null)
+                # Read session_turns config option (default: false)
+                _ss_show_turns=$(printf '%s' "${effective_config:-{}}" | jq -r '.session_turns // false' 2>/dev/null)
+                if [ -n "$_ss_title" ]; then
+                    _ss_out="${CYAN}§ ${_ss_title}${NC}"
+                    if [ "$_ss_show_turns" = "true" ] && [ -n "$_ss_turns" ] && [ "${_ss_turns:-0}" -gt 0 ] 2>/dev/null; then
+                        _ss_out="${_ss_out}${GRAY} ·${_ss_turns}${NC}"
+                    fi
+                    session_info="$_ss_out"
+                fi
+            fi
+        fi
+    fi
+    unset _ss_session _ss_safe _ss_state_dir _ss_file _ss_raw _ss_title _ss_turns _ss_show_turns _ss_out
+fi
+
 # --- Compose output ---
 # Each module produced a bare chunk (no leading separator). Route every enabled
 # chunk to line 1 or line 2 depending on whether its module name appears in
@@ -1961,36 +2035,46 @@ if [ "$smart_mode" = true ]; then
         esac
     fi
     # mcp: always notable when present — no suppression
+    # session: always notable when title present — no suppression
 fi
 
-[ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}"
-[ "$mod_model" = true ]     && route model "${CYAN}${model_name}${NC}"
-route context  "$context_info"
-route usage    "$usage_info"
-route rtk      "$rtk_info"
-route mode     "$mode_info"
-route git      "$git_info"
-route lines    "$lines_info"
-route codegraph "$cg_info"
-route cost     "$cost_info"
-route duration "$duration_info"
-route speed    "$speed_info"
-route vim      "$vim_info"
-route agent    "$agent_info"
-route pr       "$pr_info"
-route weekly   "$weekly_info"
-route pace     "$pace_info"
-route cache    "$cache_info"
-route tools      "$tools_info"
-route agents     "$agents_info"
-route todos      "$todos_info"
-route workflows  "$workflows_info"
-route daily      "$daily_info"
-route spend      "$spend_info"
-route compactions "$compactions_info"
-route tokens     "$tokens_info"
-route thinking   "$thinking_info"
-route mcp        "$mcp_info"
+# Route all enabled modules in _module_order (respects module_order config key).
+# module_order spans both lines — route() already handles line2 assignment.
+# No eval on user input: module names were validated against _KNOWN_MODULES at load time.
+for _mo_name in $_module_order; do
+    case "$_mo_name" in
+        directory)   [ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}" ;;
+        model)       [ "$mod_model" = true ]     && route model "${CYAN}${model_name}${NC}" ;;
+        context)     route context   "$context_info" ;;
+        usage)       route usage     "$usage_info" ;;
+        rtk)         route rtk       "$rtk_info" ;;
+        mode)        route mode      "$mode_info" ;;
+        git)         route git       "$git_info" ;;
+        lines)       route lines     "$lines_info" ;;
+        codegraph)   route codegraph "$cg_info" ;;
+        cost)        route cost      "$cost_info" ;;
+        duration)    route duration  "$duration_info" ;;
+        speed)       route speed     "$speed_info" ;;
+        vim)         route vim       "$vim_info" ;;
+        agent)       route agent     "$agent_info" ;;
+        pr)          route pr        "$pr_info" ;;
+        weekly)      route weekly    "$weekly_info" ;;
+        pace)        route pace      "$pace_info" ;;
+        cache)       route cache     "$cache_info" ;;
+        tools)       route tools     "$tools_info" ;;
+        agents)      route agents    "$agents_info" ;;
+        todos)       route todos     "$todos_info" ;;
+        workflows)   route workflows "$workflows_info" ;;
+        daily)       route daily     "$daily_info" ;;
+        spend)       route spend     "$spend_info" ;;
+        compactions) route compactions "$compactions_info" ;;
+        tokens)      route tokens    "$tokens_info" ;;
+        thinking)    route thinking  "$thinking_info" ;;
+        mcp)         route mcp       "$mcp_info" ;;
+        session)     route session   "$session_info" ;;
+    esac
+done
+unset _mo_name
 
 # --- Powerline render helper ---
 # build_pl_line <count_var_prefix> <line_number>
@@ -2052,7 +2136,7 @@ else
     # When responsive=true and COLUMNS is numeric, drop lowest-priority modules from
     # line1 until the visible length fits. Powerline mode is not supported (skipped above).
     # Priority order: drop first -> last (codegraph first, directory/model/context last).
-    _resp_priority="thinking mcp codegraph rtk lines duration cost speed vim weekly daily spend tokens compactions pr agent mode cache pace tools agents todos workflows git usage context model directory"
+    _resp_priority="thinking mcp session codegraph rtk lines duration cost speed vim weekly daily spend tokens compactions pr agent mode cache pace tools agents todos workflows git usage context model directory"
     if [ "$responsive_mode" = true ] && [ -n "${COLUMNS:-}" ] && [ "${COLUMNS:-0}" -gt 0 ] 2>/dev/null; then
         # Compute visible length: strip ANSI CSI sequences (\033[...m) and OSC sequences (\033]...BEL),
         # then count CHARACTERS (wc -m) — bar glyphs like █ are 3 bytes but 1 column.
@@ -2095,24 +2179,51 @@ else
                     directory)  mod_directory=false ;;
                     thinking)   thinking_info="" ;;
                     mcp)        mcp_info="" ;;
+                    session)    session_info="" ;;
                 esac
-                # Recompose line1
+                # Recompose line1 using _module_order (honours module_order config key)
                 line1=""
                 _pl_count1=0
-                [ "$mod_directory" = true ] && [ -n "$dir_name" ] && line1="${line1:+$line1$SEP}${BLUE}${dir_name}${NC}"
-                [ "$mod_model" = true ] && [ -n "$model_name" ] && line1="${line1:+$line1$SEP}${CYAN}${model_name}${NC}"
-                for _rc in context_info usage_info rtk_info mode_info git_info lines_info cg_info cost_info duration_info speed_info vim_info agent_info pr_info weekly_info pace_info cache_info tools_info agents_info todos_info workflows_info daily_info spend_info compactions_info tokens_info thinking_info mcp_info; do
-                    _rc_val="${!_rc}"
-                    if [ -n "$_rc_val" ]; then
-                        # Only route to line1 (not line2)
-                        _rc_modname="${_rc%_info}"
-                        # check if this module is assigned to line2
-                        case " $line2_set " in
-                            *" ${_rc_modname} "*) ;;  # skip — it's on line2
-                            *) line1="${line1:+$line1$SEP}${_rc_val}" ;;
-                        esac
-                    fi
+                for _rc_mod in $_module_order; do
+                    # Skip modules assigned to line2
+                    case " $line2_set " in *" $_rc_mod "*) continue ;; esac
+                    case "$_rc_mod" in
+                        directory)
+                            [ "$mod_directory" = true ] && [ -n "$dir_name" ] && \
+                                line1="${line1:+$line1$SEP}${BLUE}${dir_name}${NC}" ;;
+                        model)
+                            [ "$mod_model" = true ] && [ -n "$model_name" ] && \
+                                line1="${line1:+$line1$SEP}${CYAN}${model_name}${NC}" ;;
+                        context)     [ -n "$context_info" ]     && line1="${line1:+$line1$SEP}${context_info}" ;;
+                        usage)       [ -n "$usage_info" ]       && line1="${line1:+$line1$SEP}${usage_info}" ;;
+                        rtk)         [ -n "$rtk_info" ]         && line1="${line1:+$line1$SEP}${rtk_info}" ;;
+                        mode)        [ -n "$mode_info" ]        && line1="${line1:+$line1$SEP}${mode_info}" ;;
+                        git)         [ -n "$git_info" ]         && line1="${line1:+$line1$SEP}${git_info}" ;;
+                        lines)       [ -n "$lines_info" ]       && line1="${line1:+$line1$SEP}${lines_info}" ;;
+                        codegraph)   [ -n "$cg_info" ]          && line1="${line1:+$line1$SEP}${cg_info}" ;;
+                        cost)        [ -n "$cost_info" ]        && line1="${line1:+$line1$SEP}${cost_info}" ;;
+                        duration)    [ -n "$duration_info" ]    && line1="${line1:+$line1$SEP}${duration_info}" ;;
+                        speed)       [ -n "$speed_info" ]       && line1="${line1:+$line1$SEP}${speed_info}" ;;
+                        vim)         [ -n "$vim_info" ]         && line1="${line1:+$line1$SEP}${vim_info}" ;;
+                        agent)       [ -n "$agent_info" ]       && line1="${line1:+$line1$SEP}${agent_info}" ;;
+                        pr)          [ -n "$pr_info" ]          && line1="${line1:+$line1$SEP}${pr_info}" ;;
+                        weekly)      [ -n "$weekly_info" ]      && line1="${line1:+$line1$SEP}${weekly_info}" ;;
+                        pace)        [ -n "$pace_info" ]        && line1="${line1:+$line1$SEP}${pace_info}" ;;
+                        cache)       [ -n "$cache_info" ]       && line1="${line1:+$line1$SEP}${cache_info}" ;;
+                        tools)       [ -n "$tools_info" ]       && line1="${line1:+$line1$SEP}${tools_info}" ;;
+                        agents)      [ -n "$agents_info" ]      && line1="${line1:+$line1$SEP}${agents_info}" ;;
+                        todos)       [ -n "$todos_info" ]       && line1="${line1:+$line1$SEP}${todos_info}" ;;
+                        workflows)   [ -n "$workflows_info" ]   && line1="${line1:+$line1$SEP}${workflows_info}" ;;
+                        daily)       [ -n "$daily_info" ]       && line1="${line1:+$line1$SEP}${daily_info}" ;;
+                        spend)       [ -n "$spend_info" ]       && line1="${line1:+$line1$SEP}${spend_info}" ;;
+                        compactions) [ -n "$compactions_info" ] && line1="${line1:+$line1$SEP}${compactions_info}" ;;
+                        tokens)      [ -n "$tokens_info" ]      && line1="${line1:+$line1$SEP}${tokens_info}" ;;
+                        thinking)    [ -n "$thinking_info" ]    && line1="${line1:+$line1$SEP}${thinking_info}" ;;
+                        mcp)         [ -n "$mcp_info" ]         && line1="${line1:+$line1$SEP}${mcp_info}" ;;
+                        session)     [ -n "$session_info" ]     && line1="${line1:+$line1$SEP}${session_info}" ;;
+                    esac
                 done
+                unset _rc_mod
                 _line1_len=$(_visible_len "$line1")
             done
         fi

@@ -75,19 +75,19 @@ setup() {
     [ "$modules" = "context,model" ]
 }
 
-@test "install: --all creates config with all 28 modules" {
+@test "install: --all creates config with all 29 modules" {
     run bash "$INSTALLER" --all
     [ "$status" -eq 0 ]
 
     [ -f "$CLAUDE_CONFIG_DIR/.statusline-config.json" ]
     local count
     count=$(jq '.modules | length' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$count" -eq 28 ]
+    [ "$count" -eq 29 ]
 
-    # Verify all module names are present (core + tool/session/new modules)
+    # Verify all module names are present (core + tool/opt-in modules)
     local modules
     modules=$(jq -r '.modules | sort | join(",")' "$CLAUDE_CONFIG_DIR/.statusline-config.json")
-    [ "$modules" = "agent,agents,cache,codegraph,compactions,context,cost,daily,directory,duration,git,lines,mcp,mode,model,pace,pr,rtk,speed,spend,thinking,todos,tokens,tools,usage,vim,weekly,workflows" ]
+    [ "$modules" = "agent,agents,cache,codegraph,compactions,context,cost,daily,directory,duration,git,lines,mcp,mode,model,pace,pr,rtk,session,speed,spend,thinking,todos,tokens,tools,usage,vim,weekly,workflows" ]
 }
 
 @test "install: --line2 splits modules into a second row" {

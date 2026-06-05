@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`module_order` config key** — optional JSON array of module names controlling the left-to-right display order of segments (e.g. `["cost","git","context","model","directory"]`). Enabled modules not listed are appended after the listed ones in the default order. Unknown names are silently ignored (forward-compatible). When absent, behavior is byte-identical to previous versions. Works with powerline mode and `modules_line2` routing (order is independent of line assignment). Config values are validated against the known module list — never evaluated or executed. `module_order` added to per-project config supported-keys list.
+- 7 new tests in `test/statusline.bats` covering: default order unchanged when key absent, custom order respected, unknown names ignored, unlisted enabled modules appended, per-project config override, powerline + module_order, and modules_line2 routing preserved with custom order.
+- **Hooks-as-state-writers infrastructure** — `ccvitals-hook.sh`: a new script registered in Claude Code's `hooks` config that writes per-session state to `~/.claude/.ccvitals-state/<session_id>.json` on every event (`SessionStart`, `MessageDisplay`, `TaskCreated`, `PostCompact`, `Stop`). Tracks `last_event`, `last_event_at`, `session_title`, `message_count`, and `tasks_created`. Atomic writes (tmp + mv). Stale files (>48h) cleaned up on `SessionStart`. Always exits 0, never writes stdout — safe to run on every message. Pure bash 3.2 + jq.
+- **`session` module** (`mod_session`, default off) — shows session title written by the hook script (e.g. `§ my-refactor`); hidden when hooks not installed, state file absent, or no title set. With `"session_turns": true` config key also shows turn counter from `message_count` (e.g. `§ my-refactor ·12`). Single state-file read shared between title and turns.
+- **`--hooks` flag for `install.sh`** — registers `ccvitals-hook.sh` in `~/.claude/settings.json` under `hooks` for all five events. Merges into existing hook arrays without clobbering user-defined hooks; idempotent (no duplicate entries on re-run). Interactive installer asks whether to wire hooks after the module menu. Backs up `settings.json` before modifying. `TOTAL_STEPS` adjusted accordingly.
+- **`uninstall.sh` hooks cleanup** — removes only the ccvitals-specific hook entries (matched by `ccvitals-hook.sh` path) from all event arrays in `settings.json`; empties arrays are pruned; user hooks are preserved. Also removes the `~/.claude/.ccvitals-state/` directory.
+- **`session_turns` config key** — when `true`, the `session` module appends `·N` turn counter to the title; default `false`.
+- `session` added to `_KNOWN_MODULES`, `_DEFAULT_MODULE_ORDER`, responsive-width drop order, and smart-visibility section in `statusline.sh`; module count updated to 29; `install.sh` interactive menu extended to 29 entries.
+- 38 new tests in `test/hooks.bats` covering: hook exits/no-stdout on all five events, malformed JSON, empty stdin, state file creation and fields, `message_count` and `tasks_created` counter increments, `session_title` capture from both `session.title` and `hookSpecificOutput.sessionTitle`, title preservation across events, atomic write (valid JSON + no stray tmp files), session_id sanitisation; session module with/without state file, title display, `session_turns` sub-option, zero-turns suppression, malformed state file graceful; `install --hooks` wires all events, merges without clobbering, idempotent; `uninstall` removes only ccvitals entries and preserves user hooks, removes state dir.
+
 ## [1.11.0] - 2026-06-05
 
 ### Added

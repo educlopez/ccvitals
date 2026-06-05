@@ -2338,3 +2338,154 @@ setup() {
     # workflows: 2 pending
     [[ "$clean" == *"⟳ 2 wf"* ]]
 }
+
+# ─── module_order config key ───
+
+# Helper: return byte offset of substring $2 in string $1 (0 if not found).
+# Uses awk index() which is a true substring search, unlike BSD expr index.
+_str_pos() { printf '%s' "$1" | awk -v needle="$2" 'BEGIN{pos=0} {pos=index($0,needle)} END{print pos+0}'; }
+
+@test "module_order: default order unchanged when key absent" {
+    # Ensure default render keeps existing left-to-right order: directory before model before context.
+    echo '{"modules":["directory","model","context"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    local pos_dir pos_model pos_ctx
+    pos_dir=$(_str_pos "$clean" "test-project")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    pos_ctx=$(_str_pos "$clean" "13%")
+    [ "$pos_dir" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_dir" -lt "$pos_model" ]
+    [ "$pos_model" -lt "$pos_ctx" ]
+}
+
+@test "module_order: custom order reorders modules" {
+    # Request context before model before directory
+    echo '{"modules":["directory","model","context"],"module_order":["context","model","directory"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    local pos_ctx pos_model pos_dir
+    pos_ctx=$(_str_pos "$clean" "13%")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    pos_dir=$(_str_pos "$clean" "test-project")
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_dir" -gt 0 ]
+    [ "$pos_ctx" -lt "$pos_model" ]
+    [ "$pos_model" -lt "$pos_dir" ]
+}
+
+@test "module_order: unknown names in array are silently ignored" {
+    # "invalid_module" and "alsonotreal" are unknown; only known modules render
+    echo '{"modules":["model","context"],"module_order":["invalid_module","context","alsonotreal","model"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    [[ "$clean" != *"invalid_module"* ]]
+    [[ "$clean" != *"alsonotreal"* ]]
+    local pos_ctx pos_model
+    pos_ctx=$(_str_pos "$clean" "13%")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_ctx" -lt "$pos_model" ]
+}
+
+@test "module_order: enabled module not listed is appended after listed ones" {
+    # directory is enabled but absent from module_order — must appear after listed modules
+    echo '{"modules":["directory","model","context"],"module_order":["context","model"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    local pos_ctx pos_model pos_dir
+    pos_ctx=$(_str_pos "$clean" "13%")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    pos_dir=$(_str_pos "$clean" "test-project")
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_dir" -gt 0 ]
+    [ "$pos_ctx" -lt "$pos_model" ]
+    [ "$pos_model" -lt "$pos_dir" ]
+}
+
+@test "module_order: per-project config can set module_order" {
+    # Global config has no module_order; project .ccvitals.json sets custom order
+    echo '{"modules":["model","context","directory"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    echo '{"module_order":["directory","context","model"]}' > /tmp/test-project/.ccvitals.json
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    rm -f /tmp/test-project/.ccvitals.json
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    local pos_dir pos_ctx pos_model
+    pos_dir=$(_str_pos "$clean" "test-project")
+    pos_ctx=$(_str_pos "$clean" "13%")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    [ "$pos_dir" -gt 0 ]
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_dir" -lt "$pos_ctx" ]
+    [ "$pos_ctx" -lt "$pos_model" ]
+}
+
+@test "module_order: works with powerline mode" {
+    # Powerline mode must respect module_order: context before model before directory
+    echo '{"modules":["directory","model","context"],"module_order":["context","model","directory"],"powerline":true}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"test-project"* ]]
+    [[ "$clean" == *"Opus 4.6"* ]]
+    [[ "$clean" == *"13%"* ]]
+    local pos_ctx pos_model pos_dir
+    pos_ctx=$(_str_pos "$clean" "13%")
+    pos_model=$(_str_pos "$clean" "Opus 4.6")
+    pos_dir=$(_str_pos "$clean" "test-project")
+    [ "$pos_ctx" -gt 0 ]
+    [ "$pos_model" -gt 0 ]
+    [ "$pos_dir" -gt 0 ]
+    [ "$pos_ctx" -lt "$pos_model" ]
+    [ "$pos_model" -lt "$pos_dir" ]
+}
+
+@test "module_order: modules_line2 routing still works with custom module_order" {
+    # model on line1, context on line2; module_order lists context before model —
+    # each must still land on its configured line regardless of order.
+    echo '{"modules":["model"],"modules_line2":["context"],"module_order":["context","model"]}' \
+        > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "cat '$FIXTURE' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    local clean0 clean1
+    clean0=$(echo "${lines[0]}" | sed 's/\x1b\[[0-9;]*m//g')
+    clean1=$(echo "${lines[1]}" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean0" == *"Opus 4.6"* ]]
+    [[ "$clean1" == *"13%"* ]]
+}

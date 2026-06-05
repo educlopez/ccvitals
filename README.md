@@ -135,6 +135,23 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 ███░░ 21% ⚠ | Max 58% 3h42m | rtk 86.8%↓ | ⚡ xhigh | +264 -195
 ```
 
+### Module order
+
+Add an optional `module_order` array to control the left-to-right display order of modules. Any enabled module **not** listed is appended after the listed ones in the default order — so you can pin just the modules you care about without listing everything.
+
+```json
+{
+  "modules": ["directory", "model", "context", "git", "cost"],
+  "module_order": ["cost", "git", "context", "model", "directory"]
+}
+```
+
+Rules:
+- Unknown names in `module_order` are silently ignored (forward-compatible with future modules).
+- `modules_line2` assignment is independent — `module_order` controls *sequence*, not which line a module lands on.
+- Works with powerline mode.
+- When `module_order` is absent the default order is preserved byte-for-byte.
+
 ## Modules
 
 | Module | What it shows |
@@ -167,8 +184,9 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `thinking` | Reasoning effort level with an icon — e.g. `✦ xhigh`; hidden when absent; color: CYAN for `xhigh`, MAGENTA for `high`, GRAY otherwise; reads `.effort.level` (or `.thinking_effort` as fallback) |
 | `mcp` | Configured MCP server count — e.g. `⬡ 4`; counts servers from `.mcp.json` in the project root, `~/.claude.json`, and `~/.claude/settings.json`; hidden when count is zero; result is mtime-cached for zero-cost renders (count-only — health checking via `claude mcp list` is too slow for the render path) |
 | `spend` | 7-day and 30-day historical spend — e.g. `7d $12.40 · 30d $48`; reads per-day ledger files written by the `daily` module; accumulation starts from when `daily` was first enabled; configurable windows via `spend_windows`; hidden when ledger dir absent |
+| `session` | Session title written by `ccvitals-hook.sh` — e.g. `§ my-refactor`; hidden when hooks not installed or no title set; add `"session_turns": true` to also show turn counter (`§ my-refactor ·12`); **requires `--hooks`** |
 
-> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, `todos`, `workflows`, `daily`, `compactions`, `tokens`, `thinking`, `mcp`, and `spend` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, `todos`, `workflows`, `daily`, `compactions`, `tokens`, `thinking`, `mcp`, `spend`, and `session` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
 > each silently hides itself when its CLI isn't installed. `tools`, `agents`,
@@ -244,7 +262,7 @@ Create a `.ccvitals.json` file at your project's workspace root to override any 
 { "theme": "dracula", "smart": true, "modules": ["directory", "model", "context", "git"] }
 ```
 
-Supported keys: `modules`, `modules_line2`, `theme`, `colors`, `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`, `session_budget`, `spend_windows`, `weekly_split`, `smart`, `icons`, `responsive`, `git_operation`, `git_status_split`, `git_sha`, `git_stash`, `git_age`.
+Supported keys: `modules`, `modules_line2`, `module_order`, `theme`, `colors`, `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`, `session_budget`, `spend_windows`, `weekly_split`, `smart`, `icons`, `responsive`, `git_operation`, `git_status_split`, `git_sha`, `git_stash`, `git_age`.
 
 The merge uses `jq -s '.[0] * .[1]'` (global * project). Values are only consumed as JSON data — never executed.
 
@@ -465,6 +483,62 @@ Example — enable multiple extras at once:
 ```
 
 All five extras use a single `git status --porcelain` pass (already needed for the base module). Only `git_sha`, `git_stash`, and `git_age` add one lightweight subprocess each.
+
+### `session_turns` — show turn counter in session module
+
+```json
+{ "session_turns": true }
+```
+
+When `true`, the `session` module appends a turn counter derived from `message_count` in the hook state file (e.g. `§ my-refactor ·12`). Default: `false`. Requires hooks to be installed.
+
+## Hooks integration
+
+ccvitals ships an optional hook script (`ccvitals-hook.sh`) that Claude Code calls on every event. This is pure opt-in infrastructure: nothing is wired unless you ask.
+
+### What it enables
+
+Claude Code hooks (v2.1.84+ for `TaskCreated`, v2.1.152+ for `MessageDisplay`) fire a script on session and message events. `ccvitals-hook.sh` listens and writes per-session state to `~/.claude/.ccvitals-state/<session_id>.json`. Statusline modules read that file at zero parse cost — no extra process needed.
+
+Currently powered by hooks:
+
+| Module | What it shows | Requires hooks |
+|--------|---------------|----------------|
+| `session` | Session title from `/rename` or `SessionStart` payload (e.g. `§ my-refactor`) | yes |
+| `session` + `session_turns: true` | Session title + turn counter (e.g. `§ my-refactor ·12`) | yes |
+
+### Install (opt-in)
+
+```bash
+./install.sh --hooks            # wire hooks only (add to an existing install)
+./install.sh --all --hooks      # all modules + hooks in one pass
+```
+
+Or use the interactive installer — it asks whether to wire hooks after the module menu.
+
+The hook script is registered in `~/.claude/settings.json` under the `hooks` key for these events: `SessionStart`, `MessageDisplay`, `TaskCreated`, `PostCompact`, `Stop`. Any existing hooks you have for those events are **preserved** — ccvitals only appends its entry if not already present.
+
+### Enable the session module
+
+```json
+{ "modules": ["session", "model", "context", "git"] }
+```
+
+With turn counter:
+
+```json
+{ "modules": ["session", "model", "context"], "session_turns": true }
+```
+
+The module is silently hidden when hooks are not installed or the state file is absent — no errors.
+
+### Uninstall
+
+`./uninstall.sh` removes only the ccvitals hook entries from `settings.json` (matching by script path) and deletes `~/.claude/.ccvitals-state/`. Your other hooks are untouched.
+
+### Privacy
+
+All data stays local. The hook script reads event JSON from stdin and writes only to `~/.claude/.ccvitals-state/` — no network calls, no external services. State files are cleaned up automatically after 48 hours.
 
 ## Requirements
 
