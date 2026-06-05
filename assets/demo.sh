@@ -50,7 +50,7 @@ render '{"modules":["directory","model","context","usage","git"]}' "$base_json"
 echo ""
 sleep 3
 
-label "❯ Everything — 16 modules, two-line layout"
+label "❯ 24 modules — two-line layout"
 render '{"modules":["directory","model","git","cost","duration","speed","vim","agent","pr"],
          "modules_line2":["context","usage","weekly","lines","mode"]}' "$base_json"
 echo ""
@@ -69,5 +69,11 @@ sleep 3
 label "❯ Themes — pastel, tokyo-night, catppuccin, dracula, nord"
 for theme in pastel tokyo-night catppuccin dracula nord; do
     render "{\"modules\":[\"directory\",\"model\",\"context\",\"usage\",\"git\"],\"theme\":\"$theme\"}" "$base_json"
+done
+sleep 3
+
+label "❯ Powerline mode"
+for theme in pastel tokyo-night dracula; do
+    render "{\"modules\":[\"directory\",\"model\",\"context\",\"usage\",\"git\",\"cost\"],\"theme\":\"$theme\",\"powerline\":true}" "$base_json"
 done
 sleep 4
