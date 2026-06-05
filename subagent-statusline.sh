@@ -204,6 +204,10 @@ while IFS=$'\x1f' read -r t_id t_name t_status t_desc t_label t_tokens t_cwd; do
     [ -z "$display_name" ] && display_name="$t_name"
     [ -z "$display_name" ] && display_name="$t_id"
 
+    # Claude Code often sets label = description (the Agent "description" param
+    # feeds both) — drop the description when it duplicates the display name.
+    [ "$t_desc" = "$display_name" ] && t_desc=""
+
     # cwd basename
     cwd_base=""
     if [ -n "$t_cwd" ]; then

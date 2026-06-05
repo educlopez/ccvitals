@@ -251,6 +251,20 @@ _payload_two_tasks() {
     [ -z "$output" ]
 }
 
+@test "subagent: description identical to label is omitted (no duplicate text)" {
+    # Claude Code often feeds the Agent description into both label and description
+    local payload
+    payload='{"columns":120,"tasks":[{"id":"t1","name":"Explore","label":"Demo agent task","status":"running","description":"Demo agent task","tokenCount":100,"cwd":"/tmp/p"}]}'
+    run bash -c "echo '$payload' | bash '$SUBAGENT'"
+    [ "$status" -eq 0 ]
+    local content
+    content=$(printf '%s' "$output" | jq -r '.content')
+    # The phrase must appear exactly once
+    local count
+    count=$(printf '%s' "$content" | grep -o "Demo agent task" | wc -l | tr -d ' ')
+    [ "$count" -eq 1 ]
+}
+
 # ─── Theme awareness ──────────────────────────────────────────────────────────
 
 @test "subagent: tokyo-night theme CYAN for running task is #7dcfff (125;207;255)" {

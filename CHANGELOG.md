@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-06-05
+
+### Fixed
+
+- Subagent rows: when Claude Code feeds the same text into both `label` and `description` (common — the Agent `description` parameter populates both), the row printed it twice; the description is now omitted when it duplicates the display name
+
 ## [1.10.0] - 2026-06-04
 
 ### Added
@@ -183,7 +189,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/educlopez/ccvitals/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/educlopez/ccvitals/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/educlopez/ccvitals/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/educlopez/ccvitals/compare/v1.8.0...v1.8.1
