@@ -157,21 +157,27 @@ my-project | Opus 4.6 | (main | 3 files +42 -8) | ⬡ 11.7k
 | `weekly` | 7-day quota bar with reset countdown — e.g. `7d: ████░░░░░░ 38% 4d2h` |
 | `pace` | Burn-rate vs 5h quota window — e.g. `pace +12%` (GREEN = under budget, YELLOW = slightly over, RED = burning fast); hidden when rate_limits absent |
 | `cache` | Prompt-cache freshness countdown — e.g. `cache 4m12s` or `cache cold` (reads `transcript_path` from stdin; hidden when absent) |
-| `tools` | Tools currently in flight — e.g. `⚒ Bash` (one pending) or `⚒ Bash +2` (first + overflow count); hidden when none pending; reads the last 300 lines of the transcript (never full file) |
+| `tools` | Tools currently in flight — e.g. `⚒ Bash` (one pending) or `⚒ Bash +2` (first + overflow count); **Skill invocations show the skill name in YELLOW** (e.g. `⚒ deploy-to-vercel`); MCP tool names are compacted from `mcp__server__tool` to `server:tool`; hidden when none pending; reads the last 300 lines of the transcript (never full file) |
 | `agents` | Active sub-agents — e.g. `◉ code-reviewer` (one) or `◉ 3 agents` (several); hidden when none; reads transcript (tail-bounded) |
 | `todos` | Latest TodoWrite progress — e.g. `☑ 3/7`; GREEN when all done, CYAN otherwise; hidden when no TodoWrite found; reads transcript (tail-bounded) |
+| `workflows` | Running Workflow orchestrations — e.g. `⟳ 1 wf` (one running) or `⟳ 3 wf` (several); hidden when none pending; reads transcript (tail-bounded, same single jq pass as `tools`/`agents`/`todos`) |
 | `daily` | Cross-session daily spend — e.g. `Σ $4.20`; with optional `daily_budget` config: `Σ $4.20/$10` colored GREEN/YELLOW/MAGENTA/RED by budget %age; prunes day-files older than 7 days |
 | `compactions` | Count of `/compact` events in the transcript — e.g. `↯ 2`; hidden when 0; uses `grep -c` on the full file (fast, no jq) |
 | `tokens` | Cumulative session input/output tokens — e.g. `⇅ 1.2M/45k`; incremental cache keyed by session; resets on compact; hidden when transcript absent |
+| `thinking` | Reasoning effort level with an icon — e.g. `✦ xhigh`; hidden when absent; color: CYAN for `xhigh`, MAGENTA for `high`, GRAY otherwise; reads `.effort.level` (or `.thinking_effort` as fallback) |
+| `mcp` | Configured MCP server count — e.g. `⬡ 4`; counts servers from `.mcp.json` in the project root, `~/.claude.json`, and `~/.claude/settings.json`; hidden when count is zero; result is mtime-cached for zero-cost renders (count-only — health checking via `claude mcp list` is too slow for the render path) |
+| `spend` | 7-day and 30-day historical spend — e.g. `7d $12.40 · 30d $48`; reads per-day ledger files written by the `daily` module; accumulation starts from when `daily` was first enabled; configurable windows via `spend_windows`; hidden when ledger dir absent |
 
-> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, `todos`, `daily`, `compactions`, and `tokens` are **opt-in** (off by default).
+> `rtk`, `codegraph`, `lines`, `mode`, `cost`, `duration`, `speed`, `vim`, `agent`, `pr`, `weekly`, `pace`, `cache`, `tools`, `agents`, `todos`, `workflows`, `daily`, `compactions`, `tokens`, `thinking`, `mcp`, and `spend` are **opt-in** (off by default).
 > `rtk` and `codegraph` cache their output (rtk 60s globally, codegraph 15s per
 > project) and refresh in the background, so they don't slow down rendering;
-> each silently hides itself when its CLI isn't installed. `tools`, `agents`, and
-> `todos` share one `tail -n 300` + one `jq` invocation of the transcript per render,
-> keeping the cost bounded regardless of transcript size. `compactions` uses `grep -c`
-> on the full transcript (fast, O(n) line scan). `tokens` processes only new lines
-> since the last render (incremental cache, negligible per-render cost).
+> each silently hides itself when its CLI isn't installed. `tools`, `agents`,
+> `todos`, and `workflows` share one `tail -n 300` + one `jq` invocation of the
+> transcript per render, keeping the cost bounded regardless of transcript size.
+> `compactions` uses `grep -c` on the full transcript (fast, O(n) line scan).
+> `tokens` processes only new lines since the last render (incremental cache,
+> negligible per-render cost). `mcp` uses mtime-based file cache so parsing only
+> happens when config files change.
 
 ## Features
 
@@ -238,7 +244,7 @@ Create a `.ccvitals.json` file at your project's workspace root to override any 
 { "theme": "dracula", "smart": true, "modules": ["directory", "model", "context", "git"] }
 ```
 
-Supported keys: `modules`, `modules_line2`, `theme`, `colors`, `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`, `weekly_split`, `smart`, `icons`, `responsive`.
+Supported keys: `modules`, `modules_line2`, `theme`, `colors`, `powerline`, `powerline_separator`, `context_display`, `pace_display`, `daily_budget`, `session_budget`, `spend_windows`, `weekly_split`, `smart`, `icons`, `responsive`, `git_operation`, `git_status_split`, `git_sha`, `git_stash`, `git_age`.
 
 The merge uses `jq -s '.[0] * .[1]'` (global * project). Values are only consumed as JSON data — never executed.
 
@@ -347,6 +353,31 @@ Some modules accept additional config keys in `.statusline-config.json`:
 Optional USD budget for the `daily` module. When set, displays `Σ $4.20/$10` with color:
 GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%.
 
+### `session_budget` — per-session cost cap (cost module)
+
+```json
+{ "session_budget": 5 }
+```
+
+Optional USD budget for the `cost` module. When set, the cost segment shows `$1.50/$5.00` (current / cap) with color:
+GRAY <50%, YELLOW 50–79%, RED ≥80%.
+
+When unset, cost renders exactly as before (`$0.42` in GRAY).
+
+### `spend_windows` — windows shown by the `spend` module
+
+```json
+{ "spend_windows": ["7d", "30d"] }
+```
+
+Controls which time windows the `spend` module displays. Supported values: `"7d"`, `"30d"`. Default: both.
+
+```json
+{ "spend_windows": ["7d"] }
+```
+
+> The `spend` module reads the per-day ledger that `daily` writes to `~/.claude/.ccvitals-daily/`. Historical data only accumulates from when `daily` was first enabled — there is no automatic backfill of earlier transcripts.
+
 ### `weekly_split` — per-model weekly breakdown (weekly module)
 
 ```json
@@ -354,6 +385,16 @@ GREEN <50%, YELLOW <80%, MAGENTA <100%, RED ≥100%.
 ```
 
 When `true` and the OAuth cache contains `seven_day_opus`/`seven_day_sonnet` utilization, displays `7d O:42% S:18%` instead of the single progress bar. Falls back to the bar when per-model data is unavailable (note: requires the OAuth fetch path to have run at least once).
+
+### `tools_skill_names` — show skill name for Skill invocations (tools module)
+
+```json
+{ "tools_skill_names": false }
+```
+
+When `true` (default), a pending `Skill` tool invocation renders its `.input.skill` argument (e.g. `⚒ deploy-to-vercel`) in YELLOW instead of the generic label. Set to `false` to always show `Skill` in CYAN, like any other tool.
+
+MCP tool names (`mcp__server__tool`) are always compacted to `server:tool` regardless of this setting.
 
 ### `smart` — hide modules when their value isn't notable
 
@@ -370,6 +411,7 @@ When `true`, modules only appear when their value is notable. Default: `false` (
 | `pace` (delta mode) | delta < 0 (burning fast) |
 | `context` | ≥ 50% |
 | `duration` | ≥ 1 hour |
+| `thinking` | effort is `high` or `xhigh` (`low`/`medium` hidden) |
 
 All other modules are unaffected. ETA mode (`pace_display: "eta"`) always shows when enabled.
 
@@ -393,9 +435,36 @@ All other modules are unaffected. ETA mode (`pace_display: "eta"`) always shows 
 
 When `true` and `COLUMNS` is set, ccvitals drops the lowest-priority modules from line 1 until the visible output fits within the terminal width. Priority order (dropped first → last):
 
-`codegraph` → `rtk` → `lines` → `duration` → `cost` → `speed` → `vim` → `weekly` → `daily` → `tokens` → `compactions` → `pr` → `agent` → `mode` → `cache` → `pace` → `tools` → `agents` → `todos` → `git` → `usage` → `context` → `model` → `directory`
+`thinking` → `mcp` → `codegraph` → `rtk` → `lines` → `duration` → `cost` → `speed` → `vim` → `weekly` → `daily` → `spend` → `tokens` → `compactions` → `pr` → `agent` → `mode` → `cache` → `pace` → `tools` → `agents` → `todos` → `workflows` → `git` → `usage` → `context` → `model` → `directory`
 
 > **Note:** Powerline mode + responsive is not yet supported — responsive is silently skipped when `powerline: true`.
+
+### git extras — additional git detail (all default `false`)
+
+Each option is a boolean key in `.statusline-config.json` (or `.ccvitals.json`):
+
+| Key | What it adds |
+|-----|-------------|
+| `git_operation` | Banner before the git segment when a merge/rebase/cherry-pick/bisect is in progress — e.g. `MERGE (main …)` in RED |
+| `git_status_split` | Replaces the `N files` aggregate with staged/unstaged/untracked counts — e.g. `+2 ~3 ?1` (GREEN/YELLOW/GRAY); uses the existing `git status --porcelain` pass, no extra subprocess |
+| `git_sha` | Appends the short commit SHA — e.g. `abc1234` in GRAY |
+| `git_stash` | Appends stash count when > 0 — e.g. `≡2` in GRAY; hidden when stash is empty |
+| `git_age` | Appends time since last commit, compact format — e.g. `5m` / `2h` / `3d` / `4w` in GRAY |
+
+Example — enable multiple extras at once:
+
+```json
+{
+  "modules": ["git"],
+  "git_operation": true,
+  "git_status_split": true,
+  "git_sha": true,
+  "git_stash": true,
+  "git_age": true
+}
+```
+
+All five extras use a single `git status --porcelain` pass (already needed for the base module). Only `git_sha`, `git_stash`, and `git_age` add one lightweight subprocess each.
 
 ## Requirements
 

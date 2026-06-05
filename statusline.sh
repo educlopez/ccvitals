@@ -77,6 +77,10 @@ mod_todos=false
 mod_daily=false
 mod_compactions=false
 mod_tokens=false
+mod_thinking=false
+mod_mcp=false
+mod_spend=false
+mod_workflows=false
 
 # Modules listed under "modules_line2" render on a second row (space-delimited
 # set checked during composition). Empty = everything on one line.
@@ -123,6 +127,10 @@ if [ -n "$effective_config" ]; then
                 daily)     mod_daily=true ;;
                 compactions) mod_compactions=true ;;
                 tokens)    mod_tokens=true ;;
+                thinking)   mod_thinking=true ;;
+                mcp)        mod_mcp=true ;;
+                spend)      mod_spend=true ;;
+                workflows)  mod_workflows=true ;;
             esac
         done <<< "$modules
 $modules2"
@@ -253,6 +261,9 @@ ICON_BAR_FILL="█"
 ICON_BAR_EMPTY="░"
 ICON_AHEAD="↑"
 ICON_BEHIND="↓"
+ICON_THINKING="✦"
+ICON_MCP="⬡"
+ICON_WORKFLOWS="⟳"
 
 if [ -n "$effective_config" ]; then
     _icons=$(printf '%s' "$effective_config" | jq -r '.icons // empty' 2>/dev/null)
@@ -270,6 +281,9 @@ if [ -n "$effective_config" ]; then
             ICON_BAR_EMPTY="-"
             ICON_AHEAD="+"
             ICON_BEHIND="-"
+            ICON_THINKING="*"
+            ICON_MCP="[mcp]"
+            ICON_WORKFLOWS="wf:"
             ;;
         nerd)
             ICON_TOOLS=$''   # wrench
@@ -284,6 +298,9 @@ if [ -n "$effective_config" ]; then
             ICON_BAR_EMPTY="░"
             ICON_AHEAD=$''   # arrow up
             ICON_BEHIND=$''  # arrow down
+            ICON_THINKING=$''  # sparkle/lightning fallback
+            ICON_MCP=$''  # hexagon
+            ICON_WORKFLOWS=$''  # refresh/sync
             ;;
         unicode|'')
             # Keep defaults above
@@ -780,7 +797,31 @@ if [ "$mod_cost" = true ]; then
             else if (v < 100) { printf "$%.1f", v }
             else { printf "$%.0f", v }
         }')
-        cost_info="${GRAY}${cost_fmt}${NC}"
+        # Apply session_budget coloring if configured
+        _cb_budget=""
+        if [ -n "$effective_config" ]; then
+            _cb_budget=$(printf '%s' "$effective_config" | jq -r '.session_budget // empty' 2>/dev/null)
+        fi
+        if [ -n "$_cb_budget" ] && [ "$(printf '%s' "$_cb_budget" | awk '{print ($1+0>0)?1:0}')" = "1" ]; then
+            _cb_pct=$(printf '%s %s' "$cost_val" "$_cb_budget" | awk '{v=$1/$2*100; printf "%.0f", v}' 2>/dev/null)
+            _cb_bfmt=$(printf '%s' "$_cb_budget" | awk '{
+                v = $1 + 0
+                if (v < 10) { printf "$%.2f", v }
+                else if (v < 100) { printf "$%.1f", v }
+                else { printf "$%.0f", v }
+            }')
+            if [ "${_cb_pct:-0}" -ge 80 ] 2>/dev/null; then
+                cost_info="${RED}${cost_fmt}/${_cb_bfmt}${NC}"
+            elif [ "${_cb_pct:-0}" -ge 50 ] 2>/dev/null; then
+                cost_info="${YELLOW}${cost_fmt}/${_cb_bfmt}${NC}"
+            else
+                cost_info="${GRAY}${cost_fmt}/${_cb_bfmt}${NC}"
+            fi
+            unset _cb_pct _cb_bfmt
+        else
+            cost_info="${GRAY}${cost_fmt}${NC}"
+        fi
+        unset _cb_budget
     fi
 fi
 
@@ -1055,6 +1096,105 @@ if [ "$mod_mode" = true ]; then
     [ -n "$m_parts" ] && mode_info="${MAGENTA}${m_parts}${NC}"
 fi
 
+# --- Thinking module (effort level only, complementary to mode module) ---
+# Shows reasoning effort level with an icon. Hidden when field absent.
+# Color: accent (MAGENTA) for high, CYAN for xhigh, GRAY for low/medium.
+# NOTE: mode module also reads .effort.level — thinking shows effort alone
+# (no fast-mode flag) so the two can coexist or be used independently.
+thinking_info=""
+if [ "$mod_thinking" = true ]; then
+    th_effort=$(echo "$input" | jq -r '.effort.level // .thinking_effort // empty')
+    if [ -n "$th_effort" ]; then
+        case "$th_effort" in
+            xhigh|xlarge) th_color="$CYAN" ;;
+            high|large)   th_color="$MAGENTA" ;;
+            *)            th_color="$GRAY" ;;
+        esac
+        thinking_info="${th_color}${ICON_THINKING} ${th_effort}${NC}"
+    fi
+fi
+
+# --- MCP server count module ---
+# Parses configured MCP server counts from:
+#   1. .mcp.json in the workspace root (project-local servers)
+#   2. ~/.claude.json mcpServers key (user-global servers)
+#   3. ~/.claude/settings.json mcpServers key (settings-global servers)
+# Uses mtime-based file caching so every render is a single stat + cat;
+# only re-parses when any source file changes.
+# Health checking via "claude mcp list" is too slow for the render path —
+# count-only display is used. Document this limitation.
+mcp_info=""
+if [ "$mod_mcp" = true ]; then
+    _mcp_cache_dir="$config_dir/.tool-cache"
+    _mcp_cache_file="$_mcp_cache_dir/mcp-count.txt"
+    _mcp_cache_mtime_file="$_mcp_cache_dir/mcp-count-mtime.txt"
+
+    _mcp_ws=$(printf '%s' "$input" | jq -r '.workspace.project_dir // .workspace.current_dir // empty' 2>/dev/null)
+
+    _mcp_proj_file=""
+    if [ -n "$_mcp_ws" ] && [ -f "$_mcp_ws/.mcp.json" ]; then
+        _mcp_proj_file="$_mcp_ws/.mcp.json"
+    fi
+    _mcp_global_json="$HOME/.claude.json"
+    _mcp_settings_json="$config_dir/settings.json"
+
+    # Fingerprint: concatenated mtime of every present source file.
+    # stat -f %m = BSD (macOS); stat -c %Y = GNU/Linux.
+    _mcp_fingerprint=""
+    for _mcp_src in "$_mcp_proj_file" "$_mcp_global_json" "$_mcp_settings_json"; do
+        [ -z "$_mcp_src" ] && continue
+        [ -f "$_mcp_src" ] || continue
+        _mcp_mtime=$(stat -f %m "$_mcp_src" 2>/dev/null || stat -c %Y "$_mcp_src" 2>/dev/null || echo 0)
+        _mcp_fingerprint="${_mcp_fingerprint}:${_mcp_src}@${_mcp_mtime}"
+    done
+
+    _mcp_cached_fp=""
+    _mcp_cached_count=""
+    if [ -f "$_mcp_cache_mtime_file" ] && [ -f "$_mcp_cache_file" ]; then
+        _mcp_cached_fp=$(cat "$_mcp_cache_mtime_file" 2>/dev/null)
+        _mcp_cached_count=$(cat "$_mcp_cache_file" 2>/dev/null)
+    fi
+
+    if [ "$_mcp_cached_fp" = "$_mcp_fingerprint" ] && [ -n "$_mcp_cached_count" ]; then
+        _mcp_total="$_mcp_cached_count"
+    else
+        _mcp_total=0
+
+        # Project .mcp.json: supports both flat {name: config} and {mcpServers: {…}}
+        if [ -n "$_mcp_proj_file" ]; then
+            _mcp_n=$(jq -r 'if type == "object" then (if has("mcpServers") then (.mcpServers | keys | length) else (keys | length) end) else 0 end' "$_mcp_proj_file" 2>/dev/null || echo 0)
+            _mcp_total=$(( _mcp_total + ${_mcp_n:-0} ))
+        fi
+
+        # ~/.claude.json: .mcpServers object
+        if [ -f "$_mcp_global_json" ]; then
+            _mcp_n=$(jq -r '(.mcpServers // {}) | keys | length' "$_mcp_global_json" 2>/dev/null || echo 0)
+            _mcp_total=$(( _mcp_total + ${_mcp_n:-0} ))
+        fi
+
+        # ~/.claude/settings.json: .mcpServers object
+        if [ -f "$_mcp_settings_json" ]; then
+            _mcp_n=$(jq -r '(.mcpServers // {}) | keys | length' "$_mcp_settings_json" 2>/dev/null || echo 0)
+            _mcp_total=$(( _mcp_total + ${_mcp_n:-0} ))
+        fi
+
+        mkdir -p "$_mcp_cache_dir"
+        printf '%s
+' "$_mcp_total" > "${_mcp_cache_file}.tmp"             && mv "${_mcp_cache_file}.tmp" "$_mcp_cache_file" 2>/dev/null
+        printf '%s
+' "$_mcp_fingerprint" > "${_mcp_cache_mtime_file}.tmp"             && mv "${_mcp_cache_mtime_file}.tmp" "$_mcp_cache_mtime_file" 2>/dev/null
+    fi
+
+    if [ "${_mcp_total:-0}" -gt 0 ] 2>/dev/null; then
+        mcp_info="${CYAN}${ICON_MCP} ${_mcp_total}${NC}"
+    fi
+
+    unset _mcp_cache_dir _mcp_cache_file _mcp_cache_mtime_file
+    unset _mcp_ws _mcp_proj_file _mcp_global_json _mcp_settings_json
+    unset _mcp_fingerprint _mcp_src _mcp_mtime _mcp_cached_fp _mcp_cached_count
+    unset _mcp_total _mcp_n
+fi
+
 # --- Git info ---
 git_info=""
 if [ "$mod_git" = true ]; then
@@ -1094,7 +1234,68 @@ if [ "$mod_git" = true ]; then
             esac
         fi
 
+        # Read sub-options from config (all default off)
+        _git_op=false; _git_split=false; _git_sha=false
+        _git_stash=false; _git_age=false
+        if [ -n "$effective_config" ]; then
+            _v=$(printf '%s' "$effective_config" | jq -r '.git_operation // false' 2>/dev/null)
+            [ "$_v" = "true" ] && _git_op=true
+            _v=$(printf '%s' "$effective_config" | jq -r '.git_status_split // false' 2>/dev/null)
+            [ "$_v" = "true" ] && _git_split=true
+            _v=$(printf '%s' "$effective_config" | jq -r '.git_sha // false' 2>/dev/null)
+            [ "$_v" = "true" ] && _git_sha=true
+            _v=$(printf '%s' "$effective_config" | jq -r '.git_stash // false' 2>/dev/null)
+            [ "$_v" = "true" ] && _git_stash=true
+            _v=$(printf '%s' "$effective_config" | jq -r '.git_age // false' 2>/dev/null)
+            [ "$_v" = "true" ] && _git_age=true
+            unset _v
+        fi
+
+        # git_operation: detect in-progress merge/rebase/cherry-pick/bisect
+        _git_op_label=""
+        if [ "$_git_op" = true ]; then
+            _gd=$(git rev-parse --git-dir 2>/dev/null)
+            if [ -n "$_gd" ]; then
+                if [ -f "$_gd/MERGE_HEAD" ]; then
+                    _git_op_label="MERGE"
+                elif [ -d "$_gd/rebase-merge" ] || [ -d "$_gd/rebase-apply" ]; then
+                    _git_op_label="REBASE"
+                elif [ -f "$_gd/CHERRY_PICK_HEAD" ]; then
+                    _git_op_label="CHERRY-PICK"
+                elif [ -f "$_gd/BISECT_LOG" ]; then
+                    _git_op_label="BISECT"
+                fi
+            fi
+            unset _gd
+        fi
+
+        # Single git status --porcelain pass (reused for split counts)
         status_output=$(git status --porcelain 2>/dev/null)
+
+        # git_status_split: count staged / unstaged / untracked separately
+        # porcelain v1 format: XY filename
+        #   X = index (staged) status, Y = worktree (unstaged) status
+        #   '?' = untracked, '!' = ignored (we skip ignored)
+        _staged=0; _unstaged=0; _untracked=0
+        if [ "$_git_split" = true ] && [ -n "$status_output" ]; then
+            while IFS= read -r _sl; do
+                _xy="${_sl:0:2}"
+                _x="${_xy:0:1}"
+                _y="${_xy:1:1}"
+                case "$_x" in
+                    '?') _untracked=$(( _untracked + 1 )) ;;
+                    ' ') ;;  # only worktree change
+                    *)   _staged=$(( _staged + 1 )) ;;
+                esac
+                case "$_y" in
+                    '?') ;;  # counted in x pass above
+                    ' ') ;;
+                    *)   [ "$_x" != '?' ] && _unstaged=$(( _unstaged + 1 )) ;;
+                esac
+            done <<EOF_STATUS
+$status_output
+EOF_STATUS
+        fi
 
         if [ -n "$status_output" ]; then
             total_files=$(echo "$status_output" | wc -l | xargs)
@@ -1102,9 +1303,18 @@ if [ "$mod_git" = true ]; then
             added=$(echo "$line_stats" | cut -d' ' -f1)
             removed=$(echo "$line_stats" | cut -d' ' -f2)
 
-            git_info="${YELLOW}(${NC}${branch_text} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
-            [ "$added" -gt 0 ] && git_info="${git_info} ${GREEN}+${added}${NC}"
-            [ "$removed" -gt 0 ] && git_info="${git_info} ${RED}-${removed}${NC}"
+            if [ "$_git_split" = true ]; then
+                # Split display: +staged ~unstaged ?untracked instead of N files
+                _split_str=""
+                [ "$_staged" -gt 0 ]   && _split_str="${_split_str}${_split_str:+ }${GREEN}+${_staged}${NC}"
+                [ "$_unstaged" -gt 0 ] && _split_str="${_split_str}${_split_str:+ }${YELLOW}~${_unstaged}${NC}"
+                [ "$_untracked" -gt 0 ] && _split_str="${_split_str}${_split_str:+ }${GRAY}?${_untracked}${NC}"
+                git_info="${YELLOW}(${NC}${branch_text} ${YELLOW}|${NC} ${_split_str:-${GRAY}clean${NC}}"
+            else
+                git_info="${YELLOW}(${NC}${branch_text} ${YELLOW}|${NC} ${GRAY}${total_files} files${NC}"
+                [ "$added" -gt 0 ] && git_info="${git_info} ${GREEN}+${added}${NC}"
+                [ "$removed" -gt 0 ] && git_info="${git_info} ${RED}-${removed}${NC}"
+            fi
         else
             git_info="${YELLOW}(${NC}${branch_text}"
         fi
@@ -1116,9 +1326,55 @@ if [ "$mod_git" = true ]; then
         if [ -n "$ab_behind" ]; then
             git_info="${git_info} ${YELLOW}${ICON_BEHIND}${ab_behind}${NC}"
         fi
+
+        # git_sha: short commit SHA
+        if [ "$_git_sha" = true ]; then
+            _sha=$(git rev-parse --short HEAD 2>/dev/null)
+            [ -n "$_sha" ] && git_info="${git_info} ${GRAY}${_sha}${NC}"
+            unset _sha
+        fi
+
+        # git_stash: stash count (only when >0)
+        if [ "$_git_stash" = true ]; then
+            _stash_n=$(git stash list 2>/dev/null | wc -l | xargs)
+            if [ "${_stash_n:-0}" -gt 0 ] 2>/dev/null; then
+                git_info="${git_info} ${GRAY}≡${_stash_n}${NC}"
+            fi
+            unset _stash_n
+        fi
+
+        # git_age: time since last commit, compact (2h, 3d, 4w, etc.)
+        if [ "$_git_age" = true ]; then
+            _commit_ts=$(git log -1 --format=%ct 2>/dev/null)
+            if [ -n "$_commit_ts" ]; then
+                _now=$(date +%s)
+                _age_s=$(( _now - _commit_ts ))
+                if [ "$_age_s" -lt 3600 ]; then
+                    _age_str="${GRAY}$(( _age_s / 60 ))m${NC}"
+                elif [ "$_age_s" -lt 86400 ]; then
+                    _age_str="${GRAY}$(( _age_s / 3600 ))h${NC}"
+                elif [ "$_age_s" -lt 604800 ]; then
+                    _age_str="${GRAY}$(( _age_s / 86400 ))d${NC}"
+                else
+                    _age_str="${GRAY}$(( _age_s / 604800 ))w${NC}"
+                fi
+                git_info="${git_info} ${_age_str}"
+            fi
+            unset _commit_ts _now _age_s _age_str
+        fi
+
         git_info="${git_info}${YELLOW})${NC}"
+
+        # Prepend git_operation banner when active (outside the parens, before the segment)
+        if [ -n "$_git_op_label" ]; then
+            git_info="${RED}${_git_op_label}${NC} ${git_info}"
+        fi
+
+        unset _git_op _git_split _git_sha _git_stash _git_age
+        unset _git_op_label _staged _unstaged _untracked _split_str _sl _xy _x _y
     fi
 fi
+
 
 # --- Pace module (burn-rate vs 5h quota window) ---
 pace_info=""
@@ -1254,12 +1510,30 @@ if [ "$mod_cache" = true ]; then
     fi
 fi
 
-# --- Transcript-based live modules (tools, agents, todos) ---
+# --- Transcript-based live modules (tools, agents, todos, workflows) ---
 # ONE tail + ONE jq invocation; gated on at least one module being enabled.
+#
+# Feature: skill names — when tools_skill_names is true (default), a pending
+# Skill tool invocation renders its .input.skill name instead of "Skill".
+# MCP tool names (mcp__server__tool) are compacted to "server:tool".
+#
+# Feature: workflows module — detects pending Workflow tool_use entries
+# (tool_use named "Workflow" with no matching tool_result yet) and shows
+# "⟳ N wf" when running, hidden when none pending.
 tools_info=""
 agents_info=""
 todos_info=""
-if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true ]; then
+workflows_info=""
+
+# Read tools_skill_names config option (default: true)
+_tools_skill_names=true
+if [ -n "$effective_config" ]; then
+    _tsn=$(printf '%s' "$effective_config" | jq -r 'if (.tools_skill_names == false or ((.tools_skill_names | type) == "string" and .tools_skill_names == "false")) then "false" else "true" end' 2>/dev/null)
+    [ "$_tsn" = "false" ] && _tools_skill_names=false
+    unset _tsn
+fi
+
+if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true ] || [ "$mod_workflows" = true ]; then
     _transcript=$(echo "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
     if [ -n "$_transcript" ] && [ -f "$_transcript" ]; then
         # -R + line-wise fromjson: a truncated trailing line (transcript mid-write)
@@ -1269,26 +1543,55 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
           | ([$lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use")]) as $uses
           | ([$lines[] | select(.type=="user") | .message.content[]? | select(.type=="tool_result") | .tool_use_id]) as $done
           | ($uses | map(select(.id as $i | $done | index($i) | not))) as $pending
-          | ($pending | map(select(.name != "Task"))) as $ptools
+          | ($pending | map(select(.name != "Task" and .name != "Workflow"))) as $ptools
           | ($pending | map(select(.name == "Task"))) as $pagents
+          | ($pending | map(select(.name == "Workflow"))) as $pworkflows
           | ([$lines[] | select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="TodoWrite")] | last) as $todo
+          | ($ptools | first | (
+              if .name == "Skill" then (.input.skill // "Skill")
+              else
+                (.name // "") |
+                if test("^mcp__") then
+                  (split("__") | if length >= 3 then .[1] + ":" + .[2] else .[1] end)
+                else . end
+              end
+            )) as $pt_first_label
           | [
-              ($ptools | length | tostring), ($ptools | first | .name // ""),
+              ($ptools | length | tostring), ($pt_first_label // ""),
+              ($ptools | first | if .name == "Skill" then "skill" else "tool" end),
+              ($ptools | first | .name // ""),
               ($pagents | length | tostring), ($pagents | first | (.input.subagent_type // .input.description // "") | .[0:20]),
               (if $todo then ($todo.input.todos | map(select(.status=="completed")) | length | tostring) else "-1" end),
-              (if $todo then ($todo.input.todos | length | tostring) else "0" end)
-            ] | join("\u001f")' 2>/dev/null)
+              (if $todo then ($todo.input.todos | length | tostring) else "0" end),
+              ($pworkflows | length | tostring)
+            ] | join("")' 2>/dev/null)
         if [ -n "$_tsv" ]; then
-            IFS=$'\037' read -r _pt_count _pt_first _pa_count _pa_first _td_done _td_total <<< "$_tsv"
+            IFS=$'\037' read -r _pt_count _pt_first _pt_kind _pt_raw _pa_count _pa_first _td_done _td_total _pw_count <<< "$_tsv"
             # tools module
             if [ "$mod_tools" = true ]; then
                 if [ "${_pt_count:-0}" -ge 1 ] 2>/dev/null; then
+                    # Skill invocations: use skill name (YELLOW) when tools_skill_names=true,
+                    # or fall back to the raw tool name "Skill" (CYAN) when disabled.
+                    # Regular tools (including compacted MCP names) always use CYAN.
+                    if [ "${_pt_kind:-tool}" = "skill" ]; then
+                        if [ "$_tools_skill_names" = true ]; then
+                            _pt_label="$_pt_first"
+                            _pt_color="$YELLOW"
+                        else
+                            _pt_label="${_pt_raw:-Skill}"
+                            _pt_color="$CYAN"
+                        fi
+                    else
+                        _pt_label="$_pt_first"
+                        _pt_color="$CYAN"
+                    fi
                     if [ "${_pt_count:-0}" -eq 1 ]; then
-                        tools_info="${CYAN}${ICON_TOOLS} ${_pt_first}${NC}"
+                        tools_info="${_pt_color}${ICON_TOOLS} ${_pt_label}${NC}"
                     else
                         _pt_others=$(( _pt_count - 1 ))
-                        tools_info="${CYAN}${ICON_TOOLS} ${_pt_first} +${_pt_others}${NC}"
+                        tools_info="${_pt_color}${ICON_TOOLS} ${_pt_label} +${_pt_others}${NC}"
                     fi
+                    unset _pt_color _pt_label
                 fi
             fi
             # agents module
@@ -1309,6 +1612,12 @@ if [ "$mod_tools" = true ] || [ "$mod_agents" = true ] || [ "$mod_todos" = true 
                     else
                         todos_info="${CYAN}${ICON_TODOS} ${_td_done}/${_td_total}${NC}"
                     fi
+                fi
+            fi
+            # workflows module
+            if [ "$mod_workflows" = true ]; then
+                if [ "${_pw_count:-0}" -ge 1 ] 2>/dev/null; then
+                    workflows_info="${CYAN}${ICON_WORKFLOWS} ${_pw_count} wf${NC}"
                 fi
             fi
         fi
@@ -1376,6 +1685,107 @@ if [ "$mod_daily" = true ]; then
         else
             daily_info="${GRAY}Σ ${_d_fmt}${NC}"
         fi
+    fi
+fi
+
+# --- Spend module (7-day and 30-day historical spend from daily ledger, opt-in) ---
+# Reads the per-day ledger that the daily module maintains under
+# ~/.claude/.ccvitals-daily/YYYY-MM-DD.json (dict of session_id -> cost_usd).
+# Sums all day-files that fall within the 7d and 30d windows.
+# Accumulation starts from install time — no backfill of pre-install transcripts.
+# Config: spend_windows (array, default ["7d","30d"]), e.g. ["7d"] to show only 7-day.
+# Cache: result is stored in .tool-cache/spend-result.txt keyed on a fingerprint of
+# the ledger dir's per-file mtimes + today's date + windows config. On a cache hit,
+# zero awk/jq spawns are needed.
+spend_info=""
+if [ "$mod_spend" = true ]; then
+    _sp_dir="$config_dir/.ccvitals-daily"
+    if [ -d "$_sp_dir" ]; then
+        # Determine which windows to show
+        _sp_windows="7d 30d"
+        if [ -n "$effective_config" ]; then
+            _sp_raw=$(printf '%s' "$effective_config" | jq -r '.spend_windows[]? // empty' 2>/dev/null)
+            [ -n "$_sp_raw" ] && _sp_windows=$(printf '%s' "$_sp_raw" | tr '\n' ' ')
+        fi
+        _sp_today=$(date +%Y-%m-%d)
+        # Build mtime fingerprint: today + windows config + mtime of each ledger file
+        _sp_fingerprint="${_sp_today}:${_sp_windows}"
+        for _sp_f in "$_sp_dir"/*.json; do
+            [ -f "$_sp_f" ] || continue
+            _sp_mtime=$(stat -f %m "$_sp_f" 2>/dev/null || stat -c %Y "$_sp_f" 2>/dev/null || echo 0)
+            _sp_fingerprint="${_sp_fingerprint}:${_sp_f##*/}@${_sp_mtime}"
+        done
+        _sp_cache_dir="$config_dir/.tool-cache"
+        _sp_cache_file="$_sp_cache_dir/spend-result.txt"
+        _sp_cache_fp_file="$_sp_cache_dir/spend-result-mtime.txt"
+        _sp_cached_fp=""
+        _sp_cached_result=""
+        if [ -f "$_sp_cache_fp_file" ] && [ -f "$_sp_cache_file" ]; then
+            _sp_cached_fp=$(cat "$_sp_cache_fp_file" 2>/dev/null)
+            _sp_cached_result=$(cat "$_sp_cache_file" 2>/dev/null)
+        fi
+        if [ "$_sp_cached_fp" = "$_sp_fingerprint" ] && [ -n "$_sp_cached_result" ]; then
+            # Cache hit — zero awk/jq spawns
+            spend_info="${GRAY}${_sp_cached_result}${NC}"
+        else
+            # Cache miss — compute sums
+            # fmt helper (inline — same logic as daily)
+            _sp_fmt() {
+                printf '%s' "${1:-0}" | awk '{
+                    v = $1 + 0
+                    if (v < 10) { printf "$%.2f", v }
+                    else if (v < 100) { printf "$%.1f", v }
+                    else { printf "$%.0f", v }
+                }'
+            }
+            _sp_result=""
+            for _sp_win in $_sp_windows; do
+                case "$_sp_win" in
+                    7d)  _sp_days=7  ;;
+                    30d) _sp_days=30 ;;
+                    *)   continue ;;
+                esac
+                _sp_sum=0
+                for _sp_f in "$_sp_dir"/*.json; do
+                    [ -f "$_sp_f" ] || continue
+                    # Extract YYYY-MM-DD from filename
+                    _sp_fname="${_sp_f##*/}"
+                    _sp_date="${_sp_fname%.json}"
+                    # Compute age in days (pure awk date diff using epoch seconds via date)
+                    _sp_age=$(printf '%s %s' "$_sp_today" "$_sp_date" | awk '{
+                        split($1, a, "-"); split($2, b, "-")
+                        y1=a[1]+0; m1=a[2]+0; d1=a[3]+0
+                        y2=b[1]+0; m2=b[2]+0; d2=b[3]+0
+                        # Days since epoch (Gregorian, simplified)
+                        e1=y1*365+int(y1/4)-int(y1/100)+int(y1/400)+int((m1*306+5)/10)+d1
+                        e2=y2*365+int(y2/4)-int(y2/100)+int(y2/400)+int((m2*306+5)/10)+d2
+                        print e1-e2
+                    }' 2>/dev/null || echo 999)
+                    if [ "${_sp_age:-999}" -ge 0 ] && [ "${_sp_age:-999}" -lt "$_sp_days" ] 2>/dev/null; then
+                        _sp_day_sum=$(jq '[.[] | numbers] | add // 0' "$_sp_f" 2>/dev/null || echo 0)
+                        _sp_sum=$(printf '%s %s' "$_sp_sum" "$_sp_day_sum" | awk '{printf "%.6f", $1+$2}')
+                    fi
+                done
+                _sp_fval=$(_sp_fmt "$_sp_sum")
+                if [ -n "$_sp_result" ]; then
+                    _sp_result="${_sp_result} · ${_sp_win} ${_sp_fval}"
+                else
+                    _sp_result="${_sp_win} ${_sp_fval}"
+                fi
+            done
+            if [ -n "$_sp_result" ]; then
+                spend_info="${GRAY}${_sp_result}${NC}"
+                # Write cache atomically
+                mkdir -p "$_sp_cache_dir"
+                printf '%s' "$_sp_result" > "${_sp_cache_file}.tmp" \
+                    && mv "${_sp_cache_file}.tmp" "$_sp_cache_file" 2>/dev/null
+                printf '%s' "$_sp_fingerprint" > "${_sp_cache_fp_file}.tmp" \
+                    && mv "${_sp_cache_fp_file}.tmp" "$_sp_cache_fp_file" 2>/dev/null
+            fi
+        fi
+        unset _sp_dir _sp_windows _sp_raw _sp_today _sp_fingerprint _sp_mtime
+        unset _sp_cache_dir _sp_cache_file _sp_cache_fp_file _sp_cached_fp _sp_cached_result
+        unset _sp_result _sp_win _sp_days _sp_sum _sp_f _sp_fname _sp_date _sp_age _sp_day_sum _sp_fval
     fi
 fi
 
@@ -1544,6 +1954,13 @@ if [ "$smart_mode" = true ]; then
         [ "$_sv_dur_s" -lt 3600 ] 2>/dev/null && duration_info=""
         unset _sv_dur_ms _sv_dur_s
     fi
+    # thinking: only show when effort is high or xhigh
+    if [ -n "$thinking_info" ]; then
+        case "$thinking_info" in
+            *low*|*medium*) thinking_info="" ;;
+        esac
+    fi
+    # mcp: always notable when present — no suppression
 fi
 
 [ "$mod_directory" = true ] && route directory "${BLUE}${dir_name}${NC}"
@@ -1564,12 +1981,16 @@ route pr       "$pr_info"
 route weekly   "$weekly_info"
 route pace     "$pace_info"
 route cache    "$cache_info"
-route tools    "$tools_info"
-route agents   "$agents_info"
-route todos    "$todos_info"
-route daily    "$daily_info"
+route tools      "$tools_info"
+route agents     "$agents_info"
+route todos      "$todos_info"
+route workflows  "$workflows_info"
+route daily      "$daily_info"
+route spend      "$spend_info"
 route compactions "$compactions_info"
-route tokens   "$tokens_info"
+route tokens     "$tokens_info"
+route thinking   "$thinking_info"
+route mcp        "$mcp_info"
 
 # --- Powerline render helper ---
 # build_pl_line <count_var_prefix> <line_number>
@@ -1631,7 +2052,7 @@ else
     # When responsive=true and COLUMNS is numeric, drop lowest-priority modules from
     # line1 until the visible length fits. Powerline mode is not supported (skipped above).
     # Priority order: drop first -> last (codegraph first, directory/model/context last).
-    _resp_priority="codegraph rtk lines duration cost speed vim weekly daily tokens compactions pr agent mode cache pace tools agents todos git usage context model directory"
+    _resp_priority="thinking mcp codegraph rtk lines duration cost speed vim weekly daily spend tokens compactions pr agent mode cache pace tools agents todos workflows git usage context model directory"
     if [ "$responsive_mode" = true ] && [ -n "${COLUMNS:-}" ] && [ "${COLUMNS:-0}" -gt 0 ] 2>/dev/null; then
         # Compute visible length: strip ANSI CSI sequences (\033[...m) and OSC sequences (\033]...BEL),
         # then count CHARACTERS (wc -m) — bar glyphs like █ are 3 bytes but 1 column.
@@ -1655,6 +2076,7 @@ else
                     vim)        vim_info="" ;;
                     weekly)     weekly_info="" ;;
                     daily)      daily_info="" ;;
+                    spend)      spend_info="" ;;
                     tokens)     tokens_info="" ;;
                     compactions) compactions_info="" ;;
                     pr)         pr_info="" ;;
@@ -1665,18 +2087,21 @@ else
                     tools)      tools_info="" ;;
                     agents)     agents_info="" ;;
                     todos)      todos_info="" ;;
+                    workflows)  workflows_info="" ;;
                     git)        git_info="" ;;
                     usage)      usage_info="" ;;
                     context)    context_info="" ;;
                     model)      mod_model=false ;;
                     directory)  mod_directory=false ;;
+                    thinking)   thinking_info="" ;;
+                    mcp)        mcp_info="" ;;
                 esac
                 # Recompose line1
                 line1=""
                 _pl_count1=0
                 [ "$mod_directory" = true ] && [ -n "$dir_name" ] && line1="${line1:+$line1$SEP}${BLUE}${dir_name}${NC}"
                 [ "$mod_model" = true ] && [ -n "$model_name" ] && line1="${line1:+$line1$SEP}${CYAN}${model_name}${NC}"
-                for _rc in context_info usage_info rtk_info mode_info git_info lines_info cg_info cost_info duration_info speed_info vim_info agent_info pr_info weekly_info pace_info cache_info tools_info agents_info todos_info daily_info compactions_info tokens_info; do
+                for _rc in context_info usage_info rtk_info mode_info git_info lines_info cg_info cost_info duration_info speed_info vim_info agent_info pr_info weekly_info pace_info cache_info tools_info agents_info todos_info workflows_info daily_info spend_info compactions_info tokens_info thinking_info mcp_info; do
                     _rc_val="${!_rc}"
                     if [ -n "$_rc_val" ]; then
                         # Only route to line1 (not line2)
@@ -1697,6 +2122,6 @@ else
     if [ -n "$line2" ]; then
         printf '%b\n%b\n' "$line1" "$line2"
     else
-        echo -e "$line1"
+        printf '%b\n' "$line1"
     fi
 fi

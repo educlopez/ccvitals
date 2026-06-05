@@ -2091,3 +2091,250 @@ setup() {
 
 # NOTE: These tests are in test/install.bats but we add them here as a cross-check
 # for statusline rendering post-install config. The install-specific tests live in install.bats.
+
+# ─── Tools module: Skill name display ───
+
+@test "statusline: tools shows skill name for pending Skill invocation" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s01","name":"Skill","input":{"skill":"deploy-to-vercel"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Skill name should appear, not the generic "Skill"
+    [[ "$clean" == *"⚒ deploy-to-vercel"* ]]
+}
+
+@test "statusline: tools shows Skill fallback when skill field absent" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Skill tool_use with no .input.skill → should fall back to "Skill"
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s02","name":"Skill","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⚒ Skill"* ]]
+}
+
+@test "statusline: tools uses YELLOW color for Skill invocation" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s03","name":"Skill","input":{"skill":"gsap-core"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    # YELLOW ANSI code (\033[0;33m) should be present
+    [[ "$output" == *$'\033[0;33m'* ]] || [[ "$output" == *"38;2;"* ]]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"gsap-core"* ]]
+}
+
+@test "statusline: tools_skill_names=false shows generic Skill label" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s04","name":"Skill","input":{"skill":"deploy-to-vercel"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"],"tools_skill_names":false}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # With skill names disabled, still shows "Skill" (the .name field) not the skill arg
+    [[ "$clean" == *"⚒ Skill"* ]]
+    # And it should NOT use YELLOW (uses CYAN instead) — check no "deploy-to-vercel" shown
+    [[ "$clean" != *"deploy-to-vercel"* ]]
+}
+
+@test "statusline: tools compacts mcp__ tool names to server:tool" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_m01","name":"mcp__codegraph__codegraph_search","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Should compact mcp__codegraph__codegraph_search -> codegraph:codegraph_search
+    [[ "$clean" == *"⚒ codegraph:codegraph_search"* ]]
+    # Raw mcp__ prefix should NOT appear
+    [[ "$clean" != *"mcp__"* ]]
+}
+
+# ─── Workflows module ───
+
+@test "statusline: workflows shows count when Workflow tool pending" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w01","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⟳ 1 wf"* ]]
+}
+
+@test "statusline: workflows hidden when Workflow has matching result" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w02","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    printf '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_w02"}]},"timestamp":"2026-01-01T00:00:01Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: workflows shows count for multiple pending Workflows" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w03","name":"Workflow","input":{}},{"type":"tool_use","id":"toolu_w04","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    [[ "$clean" == *"⟳ 2 wf"* ]]
+}
+
+@test "statusline: workflows hidden when transcript_path absent" {
+    local json='{"model":{"display_name":"Test"},"workspace":{"current_dir":"/tmp/test-project"},"context_window":{"context_window_size":200000}}'
+    echo '{"modules":["workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: workflows hidden when no Workflow tool in transcript" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_001","name":"Bash","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+@test "statusline: Workflow tool excluded from tools module (not counted as regular tool)" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Workflow pending but tools module should NOT count it
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w05","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' > "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '[:space:]')
+    [ -z "$clean" ]
+}
+
+# ─── Multi-module integration: tools + agents + todos + workflows simultaneously ───
+# This test exercises the IFS=$'\037' field-splitting path with all four modules
+# active at once. A single transcript contains:
+#   - a pending regular tool_use (Bash) → tools module
+#   - a pending Skill tool_use with .input.skill → tools module (skill label)
+#   - a pending Task tool_use (subagent_type) → agents module
+#   - a pending Workflow tool_use → workflows module
+#   - a TodoWrite call with mixed-status todos → todos module
+# All five fields must parse into the correct shell variables — i.e. the
+# IFS=$'\037' read side and the jq join("\x1f") output side agree.
+
+@test "statusline: multi-module integration — tools+agents+todos+workflows all parse correctly" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Line 1: pending Bash (regular tool)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_b01","name":"Bash","input":{"command":"ls"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' >> "$tmp_transcript"
+    # Line 2: pending Skill tool_use with .input.skill
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s01","name":"Skill","input":{"skill":"my-skill"}}]},"timestamp":"2026-01-01T00:00:01Z"}\n' >> "$tmp_transcript"
+    # Line 3: pending Task (agent)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a01","name":"Task","input":{"subagent_type":"code-reviewer","description":"Review PR"}}]},"timestamp":"2026-01-01T00:00:02Z"}\n' >> "$tmp_transcript"
+    # Line 4: pending Workflow
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_w01","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:03Z"}\n' >> "$tmp_transcript"
+    # Line 5: TodoWrite with 1 completed out of 3
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_t01","name":"TodoWrite","input":{"todos":[{"id":"1","content":"done","status":"completed","priority":"high"},{"id":"2","content":"pending","status":"pending","priority":"medium"},{"id":"3","content":"also-pending","status":"pending","priority":"low"}]}}]},"timestamp":"2026-01-01T00:00:04Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools","agents","todos","workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # tools module: first pending non-Task/non-Workflow tool is Bash
+    [[ "$clean" == *"⚒ Bash"* ]]
+    # agents module: pending Task with subagent_type=code-reviewer
+    [[ "$clean" == *"◉ code-reviewer"* ]]
+    # todos module: 1 completed out of 3
+    [[ "$clean" == *"☑ 1/3"* ]]
+    # workflows module: 1 pending Workflow
+    [[ "$clean" == *"⟳ 1 wf"* ]]
+}
+
+@test "statusline: multi-module integration — Skill tool_use label shown in tools module" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Only a Skill pending (no Bash, no Task, no Workflow)
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_s02","name":"Skill","input":{"skill":"deploy-to-vercel"}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools","agents","todos","workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # Skill name is shown (tools_skill_names defaults to true)
+    [[ "$clean" == *"deploy-to-vercel"* ]]
+    # agents/todos/workflows should be empty
+    [[ "$clean" != *"◉"* ]]
+    [[ "$clean" != *"☑"* ]]
+    [[ "$clean" != *"⟳"* ]]
+}
+
+@test "statusline: multi-module integration — agents and workflows independent of tools" {
+    local tmp_transcript
+    tmp_transcript=$(mktemp)
+    # Task + Workflow pending, no regular tools
+    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_a02","name":"Task","input":{"subagent_type":"researcher","description":"Research topic"}},{"type":"tool_use","id":"toolu_w02","name":"Workflow","input":{}},{"type":"tool_use","id":"toolu_w03","name":"Workflow","input":{}}]},"timestamp":"2026-01-01T00:00:00Z"}\n' >> "$tmp_transcript"
+    local json="{\"model\":{\"display_name\":\"Test\"},\"workspace\":{\"current_dir\":\"/tmp/test-project\"},\"context_window\":{\"context_window_size\":200000},\"transcript_path\":\"${tmp_transcript}\"}"
+    echo '{"modules":["tools","agents","todos","workflows"]}' > "$CLAUDE_CONFIG_DIR/.statusline-config.json"
+    run bash -c "echo '$json' | bash '$STATUSLINE'"
+    rm -f "$tmp_transcript"
+    [ "$status" -eq 0 ]
+    local clean
+    clean=$(echo "$output" | sed 's/\x1b\[[0-9;]*m//g')
+    # tools: no regular pending tools → tools module hidden
+    [[ "$clean" != *"⚒"* ]]
+    # agents: researcher
+    [[ "$clean" == *"◉ researcher"* ]]
+    # workflows: 2 pending
+    [[ "$clean" == *"⟳ 2 wf"* ]]
+}

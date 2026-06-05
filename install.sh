@@ -52,6 +52,10 @@ MOD_DESC_21="Todos            ☑ 3/7"
 MOD_DESC_22="Daily budget     Σ \$4.20"
 MOD_DESC_23="Compactions      ↯ 2"
 MOD_DESC_24="Session tokens   ⇅ 1.2M/45k"
+MOD_DESC_25="Thinking effort  ✦ xhigh"
+MOD_DESC_26="MCP servers      ⬡ 4"
+MOD_DESC_27="Historical spend  7d \$12.40 · 30d \$48"
+MOD_DESC_28="Workflows        ⟳ 1 wf"
 
 # ─── Phase 1.1: Color setup with NO_COLOR / TTY detection ───
 
@@ -130,6 +134,8 @@ get_mod_desc() {
         16) echo "$MOD_DESC_16" ;; 17) echo "$MOD_DESC_17" ;; 18) echo "$MOD_DESC_18" ;;
         19) echo "$MOD_DESC_19" ;; 20) echo "$MOD_DESC_20" ;; 21) echo "$MOD_DESC_21" ;;
         22) echo "$MOD_DESC_22" ;; 23) echo "$MOD_DESC_23" ;; 24) echo "$MOD_DESC_24" ;;
+        25) echo "$MOD_DESC_25" ;; 26) echo "$MOD_DESC_26" ;;
+        27) echo "$MOD_DESC_27" ;; 28) echo "$MOD_DESC_28" ;;
     esac
 }
 
@@ -143,6 +149,8 @@ get_mod_name() {
         16) echo "weekly"    ;; 17) echo "pace"     ;; 18) echo "cache"   ;;
         19) echo "tools"     ;; 20) echo "agents"   ;; 21) echo "todos"   ;;
         22) echo "daily"     ;; 23) echo "compactions" ;; 24) echo "tokens" ;;
+        25) echo "thinking"  ;; 26) echo "mcp" ;;
+        27) echo "spend"     ;; 28) echo "workflows" ;;
     esac
 }
 
@@ -170,7 +178,8 @@ Options:
                      Available: directory, model, context, usage, git, rtk,
                      codegraph, lines, mode, cost, duration, speed, vim,
                      agent, pr, weekly, pace, cache, tools, agents, todos,
-                     daily, compactions, tokens
+                     daily, compactions, tokens,
+                     thinking, mcp, spend, workflows
   --line2=LIST       Render these modules on a second row (comma-separated).
                      They are placed in modules_line2; the rest stay on line 1.
 
@@ -206,6 +215,10 @@ Modules:
   daily        Show cross-session daily spend (Σ \$4.20); opt-in
   compactions  Show compact_boundary count (↯ 2); opt-in
   tokens       Show cumulative session input/output tokens (⇅ 1.2M/45k); opt-in
+  thinking     Show reasoning effort level with an icon (✦ xhigh); opt-in
+  mcp          Show configured MCP server count (⬡ 4); opt-in
+  spend        Show 7-day and 30-day historical spend (7d \$12.40 · 30d \$48); opt-in
+  workflows    Show running Workflow orchestrations (⟳ 1 wf); opt-in
 
 Update:
   cd $REPO_DIR && git pull
@@ -228,7 +241,7 @@ for arg in "$@"; do
     case "$arg" in
         --help|-h) show_help ;;
         --force)   FORCE=true ;;
-        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache,tools,agents,todos,daily,compactions,tokens" ;;
+        --all)     SKIP_MENU=true; MODULES_ARG="directory,model,context,usage,git,rtk,codegraph,lines,mode,cost,duration,speed,vim,agent,pr,weekly,pace,cache,tools,agents,todos,daily,compactions,tokens,thinking,mcp,spend,workflows" ;;
         --modules=*) SKIP_MENU=true; MODULES_ARG="${arg#--modules=}" ;;
         --line2=*) LINE2_ARG="${arg#--line2=}" ;;
         --version) echo "ccvitals v$STATUSLINE_VERSION"; exit 0 ;;
@@ -331,7 +344,7 @@ LINE2_MODULES=""
 
 if [ "$SKIP_MENU" = true ] && [ -n "$MODULES_ARG" ]; then
     # From --modules or --all flag — drop unknown module names with a warning
-    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache tools agents todos daily compactions tokens "
+    KNOWN_MODULES=" directory model context usage git rtk codegraph lines mode cost duration speed vim agent pr weekly pace cache tools agents todos daily compactions tokens thinking mcp spend workflows "
     VALIDATED=""
     OLD_IFS="$IFS"; IFS=','
     for m in $MODULES_ARG; do

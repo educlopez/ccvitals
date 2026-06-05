@@ -5,7 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.11.0] - 2026-06-05
+
+### Added
+
+- **Skill names in `tools` module** — when a `Skill` tool invocation is in flight, the `tools` module now shows the skill's name from `.input.skill` (e.g. `⚒ deploy-to-vercel`) in YELLOW instead of the generic `Skill` label. Falls back to `Skill` when `.input.skill` is absent. Controlled by the `tools_skill_names` config key (default: `true`; set to `false` to restore the previous generic label in CYAN).
+- **MCP tool name compaction in `tools` module** — `mcp__server__tool` names are compacted to `server:tool` format (e.g. `mcp__codegraph__codegraph_search` → `codegraph:codegraph_search`), keeping the statusline readable even with many MCP tools installed.
+- **`workflows` module** (`mod_workflows`, default off) — detects running `Workflow` tool-use entries in the transcript (tool_use named `"Workflow"` with no matching `tool_result` yet) and shows `⟳ N wf` (e.g. `⟳ 1 wf`); hidden when none pending. Integrates into the existing single `tail -n 300` + one `jq` pass shared by `tools`/`agents`/`todos` — zero additional transcript reads. `Workflow` entries are excluded from the `tools` module count.
+- `ICON_WORKFLOWS` (`⟳`) added to all three icon sets (`unicode`, `ascii` → `wf:`, `nerd`); `workflows` added to responsive-mode drop order (between `todos` and `git`)
+- `workflows` added to `--all` module list, `KNOWN_MODULES`, interactive menu, and `--help` in `install.sh`; module count updated from 27 to 28
+- 11 new tests in `test/statusline.bats` covering: Skill name display, Skill fallback, YELLOW color for Skill, `tools_skill_names=false` disables name, MCP compaction, workflow count display, workflow hidden when completed, multiple workflows count, workflow hidden without transcript, workflow hidden with no Workflow tool, Workflow excluded from tools module
+
+- **`thinking` module** (`mod_thinking`, default off) — displays reasoning effort level with a `✦` icon (e.g. `✦ xhigh`); reads `.effort.level` from stdin with `.thinking_effort` as a fallback field; color: CYAN for `xhigh`/`xlarge`, MAGENTA for `high`/`large`, GRAY otherwise; hidden when field absent; smart-mode suppresses `low`/`medium`
+- **`mcp` module** (`mod_mcp`, default off) — shows configured MCP server count (e.g. `⬡ 4`); aggregates servers from `.mcp.json` in the workspace root (flat `{name:…}` and `{mcpServers:{…}}` formats), `~/.claude.json`, and `~/.claude/settings.json`; hidden when count is zero; mtime-based file cache keeps every render at constant cost (count-only — no `claude mcp list` call on the render path)
+- **`git_operation`** config key (default `false`) — prepends a RED operation banner when `.git/MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, or `BISECT_LOG` are present (e.g. `MERGE (main …)`)
+- **`git_status_split`** config key (default `false`) — replaces the `N files` aggregate with staged/unstaged/untracked counts (e.g. `+2 ~3 ?1`); reuses the existing `git status --porcelain` pass, no extra subprocess
+- **`git_sha`** config key (default `false`) — appends short commit SHA (GRAY) to the git segment
+- **`git_stash`** config key (default `false`) — appends stash count as `≡N` (GRAY) when stash is non-empty; hidden when empty
+- **`git_age`** config key (default `false`) — appends time since last commit in compact format: `5m`, `2h`, `3d`, `4w` (GRAY)
+- `ICON_THINKING` (`✦`) and `ICON_MCP` (`⬡`) added to all three icon sets (`unicode`, `ascii`, `nerd`)
+- `thinking` and `mcp` added to responsive-mode drop order (dropped before `codegraph`)
+- `thinking` and `mcp` added to smart-visibility suppression logic; `git_operation`/`git_status_split`/`git_sha`/`git_stash`/`git_age` keys documented in per-project config supported-keys list
+- install.sh: `thinking` and `mcp` added to `--all` module list and `KNOWN_MODULES`; count updated from 24 to 26
+- **Session budget cap** (`session_budget`, number, USD) — new config key for the `cost` module. When set, displays `$1.50/$5.00` (current / cap) with color: GRAY <50%, YELLOW 50–79%, RED ≥80%. When unset, the module behaves exactly as before. Supports per-project override via `.ccvitals.json`.
+- **`spend` module** (`mod_spend`, default off) — 7-day and 30-day historical spend aggregated from the per-day ledger that the `daily` module writes to `~/.claude/.ccvitals-daily/YYYY-MM-DD.json`. Displays `7d $12.40 · 30d $48` (compact, same money format as other modules). Config key `spend_windows` (array, default `["7d","30d"]`) selects which windows appear. Accumulation starts from when `daily` was first enabled; no backfill of pre-install transcripts. Reads only today-relative day-files from disk with a pure-awk date-diff (no external calls); hidden when ledger dir absent.
+- `spend` added to `--all` module list and `KNOWN_MODULES` in `install.sh`; responsive drop order updated to include `spend` (between `daily` and `tokens`); `session_budget` and `spend_windows` added to per-project config supported-keys lists
+- `test/cost_guardrails.bats`: 19 new tests covering session budget (no-budget baseline, denominator display, color thresholds at 50%/80%, zero budget, per-project override) and spend module (hidden by default, missing dir, populated ledger, multi-window, separator dot, `spend_windows` config, zero spend, malformed file, crash guard)
 
 ## [1.10.1] - 2026-06-05
 
@@ -189,7 +214,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automatic `settings.json` configuration with backup on overwrite
 - Per-user module configuration stored in `.statusline-config.json`
 
-[Unreleased]: https://github.com/educlopez/ccvitals/compare/v1.10.1...HEAD
+[1.11.0]: https://github.com/educlopez/ccvitals/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/educlopez/ccvitals/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/educlopez/ccvitals/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/educlopez/ccvitals/compare/v1.8.1...v1.9.0
