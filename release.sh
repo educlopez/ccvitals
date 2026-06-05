@@ -137,16 +137,58 @@ ok "Created commit for v${VERSION}"
 git tag -a "v${VERSION}" -m "Release v${VERSION}"
 ok "Created tag v${VERSION}"
 
-# --- Optional push ---
+# --- Optional push + publish ---
 if [ "$PUSH" = true ]; then
     info "Pushing to origin..."
     git push origin HEAD
     git push origin "v${VERSION}"
     ok "Pushed commit and tag to origin"
+
+    # --- GitHub Release (notes from CHANGELOG) ---
+    if command -v gh >/dev/null 2>&1; then
+        info "Creating GitHub Release..."
+        NOTES_FILE="$(mktemp)"
+        awk "/^## \\[${VERSION}\\]/{f=1;next} /^## \\[/{f=0} f" CHANGELOG.md > "$NOTES_FILE"
+        if [ -s "$NOTES_FILE" ] && gh release create "v${VERSION}" --title "v${VERSION}" --notes-file "$NOTES_FILE"; then
+            ok "GitHub Release v${VERSION} created"
+        else
+            warn "GitHub Release creation failed — create it manually:"
+            echo "  gh release create v${VERSION} --title v${VERSION} --notes-file <notes>"
+        fi
+        rm -f "$NOTES_FILE"
+
+        # --- Homebrew tap formula update ---
+        TAP_REPO="educlopez/homebrew-tap"
+        FORMULA_PATH="Formula/ccvitals.rb"
+        info "Updating Homebrew tap (${TAP_REPO})..."
+        TARBALL_URL="https://github.com/educlopez/ccvitals/archive/refs/tags/v${VERSION}.tar.gz"
+        TARBALL_SHA="$(curl -sL "$TARBALL_URL" | shasum -a 256 | awk '{print $1}')"
+        if [ -n "$TARBALL_SHA" ] && [ "${#TARBALL_SHA}" -eq 64 ]; then
+            FORMULA_TMP="$(mktemp)"
+            FORMULA_SHA="$(gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" --jq '.sha')"
+            gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" --jq '.content' | base64 -d > "$FORMULA_TMP"
+            eval "$SED_INPLACE 's|tags/v[0-9][0-9.]*\\.tar\\.gz|tags/v${VERSION}.tar.gz|; s|sha256 \".*\"|sha256 \"${TARBALL_SHA}\"|' \"$FORMULA_TMP\""
+            if gh api -X PUT "repos/${TAP_REPO}/contents/${FORMULA_PATH}" \
+                -f message="ccvitals ${VERSION}" \
+                -f content="$(base64 -i "$FORMULA_TMP")" \
+                -f sha="$FORMULA_SHA" >/dev/null; then
+                ok "Homebrew tap updated to v${VERSION}"
+            else
+                warn "Tap update failed — update ${TAP_REPO}/${FORMULA_PATH} manually (url + sha256 ${TARBALL_SHA})"
+            fi
+            rm -f "$FORMULA_TMP"
+        else
+            warn "Could not compute tarball sha256 — update tap manually:"
+            echo "  curl -sL ${TARBALL_URL} | shasum -a 256"
+        fi
+    else
+        warn "gh CLI not found — skipping GitHub Release and Homebrew tap update"
+    fi
 else
     echo ""
     info "Release v${VERSION} created locally. To push:"
     echo "  git push origin HEAD && git push origin v${VERSION}"
+    echo "  (with --push this also creates the GitHub Release and updates the Homebrew tap)"
 fi
 
 echo ""
