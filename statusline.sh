@@ -3,7 +3,7 @@
 # Claude Code Statusline — Real-time usage, context, and git info
 # https://github.com/educlopez/ccvitals
 
-STATUSLINE_VERSION="1.10.0"
+STATUSLINE_VERSION="1.10.1"
 
 # Read JSON input from stdin
 input=$(cat)

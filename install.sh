@@ -17,7 +17,7 @@ set -euo pipefail
 #   ./install.sh --force               # repair/overwrite an existing install
 #   ./install.sh --help
 
-STATUSLINE_VERSION="1.10.0"
+STATUSLINE_VERSION="1.10.1"
 
 SCRIPT_NAME="statusline-command.sh"
 SUBAGENT_SCRIPT_NAME="subagent-statusline.sh"
