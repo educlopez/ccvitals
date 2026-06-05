@@ -136,8 +136,10 @@ if [ -z "$updated" ]; then
 fi
 
 # --- Atomic write ---
-printf '%s\n' "$updated" > "$tmp_file" 2>/dev/null \
-    && mv "$tmp_file" "$state_file" 2>/dev/null \
-    || rm -f "$tmp_file" 2>/dev/null
+if printf '%s\n' "$updated" > "$tmp_file" 2>/dev/null; then
+    mv "$tmp_file" "$state_file" 2>/dev/null || rm -f "$tmp_file" 2>/dev/null
+else
+    rm -f "$tmp_file" 2>/dev/null
+fi
 
 exit 0
