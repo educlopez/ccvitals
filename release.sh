@@ -162,7 +162,15 @@ if [ "$PUSH" = true ]; then
         FORMULA_PATH="Formula/ccvitals.rb"
         info "Updating Homebrew tap (${TAP_REPO})..."
         TARBALL_URL="https://github.com/educlopez/ccvitals/archive/refs/tags/v${VERSION}.tar.gz"
-        TARBALL_SHA="$(curl -sL "$TARBALL_URL" | shasum -a 256 | awk '{print $1}')"
+        # -f makes curl fail on HTTP errors (404 body would otherwise hash to a
+        # valid 64-char sha and poison the formula)
+        TARBALL_TMP="$(mktemp)"
+        if curl -fsSL "$TARBALL_URL" -o "$TARBALL_TMP"; then
+            TARBALL_SHA="$(shasum -a 256 "$TARBALL_TMP" | awk '{print $1}')"
+        else
+            TARBALL_SHA=""
+        fi
+        rm -f "$TARBALL_TMP"
         if [ -n "$TARBALL_SHA" ] && [ "${#TARBALL_SHA}" -eq 64 ]; then
             FORMULA_TMP="$(mktemp)"
             FORMULA_SHA="$(gh api "repos/${TAP_REPO}/contents/${FORMULA_PATH}" --jq '.sha')"
